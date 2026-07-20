@@ -1,4 +1,6 @@
 // 渲染主控：根据 window.DIFF_DATA 渲染章节树 / 段落列表 / 双边 diff
+// 关键设计：选中章节后，段落栏列出整章所有段落 (含上下文未变更段落)，差异栏按章节原顺序铺开所有段落，
+// 变更段落高亮、未变更段落淡化作为骨架。章节树默认只展开含变更子树。
 (function() {
   const D = window.DIFF_DATA || {};
   const treeEl = document.getElementById('chapter-tree');
@@ -9,14 +11,18 @@
   const STATUS_BADGE = { add: '新增', del: '删除', chg: '修改' };
   const STATUS_LABEL = { add: '新增', del: '删除', chg: '修改', keep: '无变更' };
 
+  let currentChapterId = null;
+  let currentPid = null;
+
   function init() {
     renderHeader();
     if (treeEl) {
-      treeEl.appendChild(renderTree(D.chapters || []));
+      treeEl.appendChild(renderTree(D.chapters || [], true));
       const first = findFirstDiffChapter(D.chapters || []);
       if (first) selectChapter(first);
+    } else {
+      renderEmpty();
     }
-    renderEmpty();
   }
 
   function renderHeader() {
@@ -38,15 +44,26 @@
     }
   }
 
-  function renderTree(nodes) {
+  // 子树是否含变更 (含子孙)
+  function hasTreeDiff(node) {
+    const s = node.status || 'keep';
+    if (s !== 'keep') return true;
+    if (node.children && node.children.length) return node.children.some(hasTreeDiff);
+    return false;
+  }
+
+  function renderTree(nodes, expandDiffByDefault) {
     const ul = document.createElement('ul');
     nodes.forEach((node) => {
       const li = document.createElement('li');
       li.className = 'tree-node';
       const hasChildren = node.children && node.children.length;
+      const childHasDiff = hasChildren && node.children.some(hasTreeDiff);
+      const expandByDefault = expandDiffByDefault && childHasDiff;
+
       const toggle = document.createElement('span');
       toggle.className = hasChildren
-        ? 'tree-toggle expanded'
+        ? (expandByDefault ? 'tree-toggle expanded' : 'tree-toggle collapsed')
         : 'tree-toggle empty';
       li.appendChild(toggle);
 
@@ -63,8 +80,9 @@
       li.appendChild(label);
 
       if (hasChildren) {
-        const subUl = renderTree(node.children);
+        const subUl = renderTree(node.children, true);
         li.appendChild(subUl);
+        if (!expandByDefault) subUl.style.display = 'none';
         toggle.addEventListener('click', () => {
           const collapsed = toggle.classList.contains('collapsed');
           toggle.classList.toggle('collapsed', collapsed);
@@ -89,11 +107,13 @@
   }
 
   function selectChapter(id) {
+    currentChapterId = id;
+    currentPid = null;
     treeEl.querySelectorAll('.tree-label').forEach(el =>
       el.classList.toggle('active', el.dataset.id === id)
     );
     renderParagraphList(id);
-    renderEmpty();
+    renderChapterDiff(id, null);
   }
 
   function renderParagraphList(chapterId) {
@@ -107,8 +127,9 @@
       return;
     }
     paras.forEach((p) => {
+      const status = p.status || 'keep';
       const li = document.createElement('li');
-      li.className = 'paragraph-item';
+      li.className = 'paragraph-item s-' + status;
       li.dataset.id = p.id;
 
       const typeSpan = document.createElement('span');
@@ -121,10 +142,10 @@
       titleSpan.textContent = p.title;
       li.appendChild(titleSpan);
 
-      const status = document.createElement('span');
-      status.className = 'paragraph-status s-' + (p.status || 'keep');
-      status.textContent = STATUS_LABEL[p.status] || '无变更';
-      li.appendChild(status);
+      const statusSpan = document.createElement('span');
+      statusSpan.className = 'paragraph-status s-' + status;
+      statusSpan.textContent = STATUS_LABEL[status] || '无变更';
+      li.appendChild(statusSpan);
 
       li.addEventListener('click', () => selectParagraph(p.id));
       listEl.appendChild(li);
@@ -135,44 +156,81 @@
     return { heading: '标题', text: '文本', table: '表格', image: '图片', list: '列表' }[t] || t;
   }
 
-  function getParagraph(pid) {
+  function findChapterIdOfParagraph(pid) {
     const all = D.paragraphsByChapter || {};
     for (const k in all) {
-      const f = all[k].find(p => p.id === pid);
-      if (f) return f;
+      if (all[k].some(p => p.id === pid)) return k;
     }
     return null;
   }
 
   function selectParagraph(pid) {
+    const chId = findChapterIdOfParagraph(pid);
+    if (chId && chId !== currentChapterId) {
+      currentChapterId = chId;
+      treeEl.querySelectorAll('.tree-label').forEach(el =>
+        el.classList.toggle('active', el.dataset.id === chId)
+      );
+      renderParagraphList(chId);
+    }
+    currentPid = pid;
     listEl.querySelectorAll('.paragraph-item').forEach(el =>
       el.classList.toggle('active', el.dataset.id === pid)
     );
-    const p = getParagraph(pid);
-    if (!p) { renderEmpty(); return; }
-    renderDiff(p);
+    renderChapterDiff(currentChapterId, pid);
   }
 
-  function renderDiff(p) {
+  // 渲染整章按段落原顺序铺开 OLD | NEW 双栏；变更段落加 focused/context 高亮差异
+  function renderChapterDiff(chapterId, focusPid) {
     const oldTitle = `OLD ${D.meta ? D.meta.oldVersion : ''}`;
     const newTitle = `NEW ${D.meta ? D.meta.newVersion : ''}`;
-    const meta = `[${typeLabel(p.type)}]  ${STATUS_LABEL[p.status] || '无变更'}`;
-    const blockClass = `diff-block type-${p.type}`;
-    oldEl.innerHTML =
-      `<div class="diff-pane-title">${oldTitle}</div>` +
-      `<div class="${blockClass}"><div class="diff-block-meta"><strong>${meta}</strong></div>${renderOld(p)}</div>`;
-    newEl.innerHTML =
-      `<div class="diff-pane-title">${newTitle}</div>` +
-      `<div class="${blockClass}"><div class="diff-block-meta"><strong>${meta}</strong></div>${renderNew(p)}</div>`;
+    const paras = D.paragraphsByChapter && D.paragraphsByChapter[chapterId];
+    if (!paras || paras.length === 0) {
+      oldEl.innerHTML = `<div class="diff-pane-title">${oldTitle}</div><div class="diff-empty">该章节无内容</div>`;
+      newEl.innerHTML = `<div class="diff-pane-title">${newTitle}</div><div class="diff-empty">该章节无内容</div>`;
+      return;
+    }
+    const oldHtml = [`<div class="diff-pane-title">${oldTitle}</div>`];
+    const newHtml = [`<div class="diff-pane-title">${newTitle}</div>`];
+    paras.forEach((p) => {
+      const isFocus = focusPid && p.id === focusPid;
+      const isKeep = (p.status || 'keep') === 'keep';
+      const klass = ['diff-block', 'type-' + p.type, 'status-' + (p.status || 'keep')];
+      if (isKeep) klass.push('context');
+      if (isFocus) klass.push('focused');
+      const meta = `[${typeLabel(p.type)}]  ${STATUS_LABEL[p.status] || '无变更'}`;
+      oldHtml.push(`<div class="${klass.join(' ')}" data-pid="${p.id}"><div class="diff-block-meta"><strong>${meta}</strong></div>${renderOld(p)}</div>`);
+      newHtml.push(`<div class="${klass.join(' ')}" data-pid="${p.id}"><div class="diff-block-meta"><strong>${meta}</strong></div>${renderNew(p)}</div>`);
+    });
+    oldEl.innerHTML = oldHtml.join('');
+    newEl.innerHTML = newHtml.join('');
+    if (focusPid) {
+      const fOld = oldEl.querySelector(`.diff-block[data-pid="${focusPid}"]`);
+      const fNew = newEl.querySelector(`.diff-block[data-pid="${focusPid}"]`);
+      if (fOld) fOld.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (fNew) {
+        // 不强行再次 scrollIntoView 以免干扰 scroll-sync, 由 scroll-sync 同步
+      }
+    }
   }
 
   function renderOld(p) {
-    if (p.status === 'add') return '<div class="diff-empty">(新版本中新增段落)</div>';
+    if (p.status === 'add') return '<div class="diff-empty">(旧版本无此段落)</div>';
+    if (p.status === 'keep') {
+      if (p.type === 'image' && !p.oldImage && !p.newImage) return '<div class="diff-empty">(无图片)</div>';
+      if (p.type === 'image') return renderImage(p, p.oldImage || p.newImage, p.oldCaption || p.newCaption, p.status, p.oldHash);
+      return p.contentHtml || p.oldHtml || '<div class="diff-empty">(无)</div>';
+    }
     if (p.type === 'image') return renderImage(p, p.oldImage, p.oldCaption, p.status || 'keep', p.oldHash);
     return p.oldHtml || '<div class="diff-empty">(无)</div>';
   }
   function renderNew(p) {
     if (p.status === 'del') return '<div class="diff-empty">(新版本中已删除)</div>';
+    if (p.status === 'keep') {
+      if (p.type === 'image' && !p.newImage && !p.oldImage) return '<div class="diff-empty">(无图片)</div>';
+      if (p.type === 'image') return renderImage(p, p.newImage || p.oldImage, p.newCaption || p.oldCaption, p.status, p.newHash);
+      return p.contentHtml || p.newHtml || '<div class="diff-empty">(无)</div>';
+    }
     if (p.type === 'image') return renderImage(p, p.newImage, p.newCaption, p.status || 'keep', p.newHash);
     return p.newHtml || '<div class="diff-empty">(无)</div>';
   }
@@ -191,12 +249,6 @@
   }
   function imageStatusLabel(s) {
     return { add: '新增', del: '删除', chg: '已变更', keep: '未变更' }[s] || '未变更';
-  }
-
-  function renderEmpty() {
-    const msg = '← 在左侧选择章节，再在中间栏选择段落查看对比';
-    oldEl.innerHTML = `<div class="diff-pane-title">OLD</div><div class="diff-empty">${msg}</div>`;
-    newEl.innerHTML = `<div class="diff-pane-title">NEW</div><div class="diff-empty">${msg}</div>`;
   }
 
   if (document.readyState === 'loading') {
