@@ -189,6 +189,18 @@ body {
   font-weight: 600;
   color: var(--accent);
 }
+/* bridge (folder-like) nodes: 仅做层级展示, 不响应点击 */
+.tree-label.tree-bridge {
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  cursor: default;
+}
+.tree-label.tree-bridge:hover { background: transparent; }
+.tree-label.tree-bridge::before {
+  content: '📁\00a0';
+  font-size: 11px;
+}
 .tree-label.has-diff::after {
   content: attr(data-badge);
   margin-left: 6px;

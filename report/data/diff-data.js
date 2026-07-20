@@ -1,336 +1,301 @@
 /**
- * HDX 版本对比报告 假数据样例 (v3: 每章每节完整上下文 demo)
- * 数据说明：
- *  - status: add(新增) / del(删除) / chg(修改) / keep(无变更)
- *  - heading 段落带 level (1=章如 1, 2=节如 1.1, 3=子节如 1.2.1)
- *  - keep 段落用 contentHtml 单栏字段 (新旧一致)
- *  - 变更段落用 oldHtml / newHtml (前端做行内 diff 高亮)
- *  - image 段落用 oldImage/newImage + 描述 + hash
- *  - 父章节 (ch1, ch2, ch1-2) inline 子节完整内容 (用于"整章"视图)
+ * 本文件由 scripts/generate_report.py 自动生成, 请勿手工编辑.
+ * 输入: data/parse/json/<OLD_VER> 与 <NEW_VER> 下的章节 JSON;
+ * 输出: window.DIFF_DATA, 供 report/index.html 渲染.
  */
 window.DIFF_DATA = {
-  meta: {
-    name: '华为 S5700 系列交换机 产品手册 版本对比',
-    product: 'S5700',
-    oldVersion: 'V1.8',
-    newVersion: 'V1.9',
-    generatedAt: '2026-07-20 10:30',
-    sourceDoc: 'S5700 产品手册.hdx',
-    stats: { add: 8, del: 6, chg: 7, img: 1 }
+  "meta": {
+    "name": "5G RAN 特性文档 版本对比",
+    "oldVersion": "5G RAN10.1",
+    "newVersion": "5G RAN10.2",
+    "generatedAt": "2026-07-20 20:42",
+    "sourceDoc": "5G RAN 特性文档 (5G RAN10.1 → 5G RAN10.2)",
+    "stats": {
+      "add": 1,
+      "del": 1,
+      "chg": 4,
+      "img": 1
+    }
   },
-
-  // ===== 章节树 (左侧导航) =====
-  chapters: [
+  "chapters": [
     {
-      id: 'ch1', title: '1 概述', status: 'chg',
-      children: [
-        { id: 'ch1-1', title: '1.1 产品定位', status: 'add', children: [] },
+      "id": "ch1",
+      "title": "特性文档",
+      "status": "chg",
+      "bridge": true,
+      "children": [
         {
-          id: 'ch1-2', title: '1.2 功能特性', status: 'chg',
-          children: [
-            { id: 'ch1-2-1', title: '1.2.1 接口类型',          status: 'keep', children: [] },
-            { id: 'ch1-2-2', title: '1.2.2 组网限制',          status: 'chg',  children: [] },
-            { id: 'ch1-2-3', title: '1.2.3 端口速率限制',      status: 'del',  children: [] }
+          "id": "ch1-1",
+          "title": "文档包信息",
+          "status": "chg",
+          "bridge": false,
+          "children": [
+            {
+              "id": "ch1-1-1",
+              "title": "无线文档体系",
+              "status": "chg",
+              "bridge": false,
+              "children": []
+            }
           ]
         },
-        { id: 'ch1-3', title: '1.3 硬件规格', status: 'keep', children: [] }
-      ]
-    },
-    {
-      id: 'ch2', title: '2 配置指南', status: 'chg',
-      children: [
-        { id: 'ch2-1', title: '2.1 初始配置',   status: 'keep', children: [] },
-        { id: 'ch2-2', title: '2.2 VLAN 配置', status: 'del',  children: [] },
-        { id: 'ch2-3', title: '2.3 安全配置',   status: 'add',  children: [] },
-        { id: 'ch2-4', title: '2.4 接口聚合',   status: 'chg',  children: [] }
+        {
+          "id": "ch1-2",
+          "title": "接口与流量",
+          "status": "chg",
+          "bridge": true,
+          "children": [
+            {
+              "id": "ch1-2-1",
+              "title": "状态接口",
+              "status": "chg",
+              "bridge": false,
+              "children": []
+            },
+            {
+              "id": "ch1-2-2",
+              "title": "流量控制策略",
+              "status": "del",
+              "bridge": false,
+              "children": []
+            },
+            {
+              "id": "ch1-2-3",
+              "title": "VLAN 隔离特性",
+              "status": "add",
+              "bridge": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "ch1-3",
+          "title": "修订历史",
+          "status": "chg",
+          "bridge": false,
+          "children": []
+        }
       ]
     }
   ],
-
-  paragraphsByChapter: {
-
-    // ============ 1 概述 (整章) ============
-    'ch1': [
-      { id: 'c1-i0', type: 'text', status: 'keep', title: '章节概述',
-        contentHtml: '<p class="diff-p">本章节描述 S5700 系列交换机的整体定位、功能特性与硬件规格，作为产品入门与选型参考。</p>' },
-
-      { id: 'c1-1h', type: 'heading', level: 2, status: 'add', title: '1.1 产品定位',
-        oldHtml: '<div class="diff-empty">(旧版本无此节)</div>',
-        newHtml: '<h2 class="diff-h">1.1 产品定位</h2>' },
-      { id: 'c1-1p1', type: 'text', status: 'add', title: '产品简介',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<p class="diff-p">S5700 系列交换机是面向企业园区网接入/汇聚层的高性能千兆以太网交换机，提供 24/48 个 GE 下行端口及 4 个 10GE SFP+ 上行端口，支持堆叠、虚拟化、IPv6 等丰富特性。</p>' },
-      { id: 'c1-1l1', type: 'list', status: 'add', title: '核心特性',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<ul class="data-list"><li>24/48 个 GE 下行端口</li><li>4 个 10GE SFP+ 上行端口</li><li>堆叠 (iStack)、虚拟化 (CSS)、IPv6 双栈</li></ul>' },
-
-      { id: 'c1-2h', type: 'heading', level: 2, status: 'chg', title: '1.2 功能特性',
-        oldHtml: '<h2 class="diff-h">1.2 <span class="del">功能特性</span></h2>',
-        newHtml: '<h2 class="diff-h">1.2 <span class="add">核心特性</span></h2>' },
-      { id: 'c1-2intro', type: 'text', status: 'keep', title: '本节概述',
-        contentHtml: '<p class="diff-p">本节列出 S5700 的接口类型、组网限制与端口速率等关键特性，作为产品规划与运维参考。</p>' },
-
-      { id: 'c1-2-1h', type: 'heading', level: 3, status: 'keep', title: '1.2.1 接口类型',
-        contentHtml: '<h3 class="diff-h">1.2.1 接口类型</h3>' },
-      { id: 'c1-2-1p', type: 'text', status: 'keep', title: '接口概述',
-        contentHtml: '<p class="diff-p">S5700 提供丰富的端口形态，包括 GE 电口、GE 光口 (SFP)、10GE 光口 (SFP+)，下行带宽 48 Gbps，上行带宽 40 Gbps。</p>' },
-      { id: 'c1-2-1t', type: 'table', status: 'keep', title: '接口规格',
-        contentHtml: '<table class="data-table"><caption>表 1-1 S5700 接口规格</caption><thead><tr><th>接口</th><th>速率</th><th>介质</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>双绞线 Cat5e+</td></tr><tr><td>GE 光口</td><td>1 Gbps</td><td>SFP</td></tr><tr><td>10GE 光口</td><td>10 Gbps</td><td>SFP+</td></tr></tbody></table>' },
-
-      { id: 'c1-2-2h', type: 'heading', level: 3, status: 'chg', title: '1.2.2 组网限制',
-        oldHtml: '<h3 class="diff-h">1.2.2 <span class="del">组网限制</span></h3>',
-        newHtml: '<h3 class="diff-h">1.2.2 <span class="add">端口组网限制</span></h3>' },
-      { id: 'c1-2-2intro', type: 'text', status: 'keep', title: '概述',
-        contentHtml: '<p class="diff-p">本节描述 S5700 在典型园区组网场景下的部署约束与建议。</p>' },
-      { id: 'c1-2-2p1', type: 'text', status: 'chg', title: '端口速率限制',
-        oldHtml: '<p class="diff-p">接口速率上限为 <span class="del">1 Gbps</span>，下行端口支持半双工/全双工模式，最大转发速率 1.4 Mpps。</p>',
-        newHtml: '<p class="diff-p">接口速率上限为 <span class="add">10 Gbps</span>，下行端口支持半双工/全双工模式与<span class="add">硬件流控</span>，最大转发速率 <span class="chg">14 Mpps</span>。</p>' },
-      { id: 'c1-2-2p2', type: 'text', status: 'add', title: '端口隔离原则',
-        oldHtml: '<div class="diff-empty">(新增内容)</div>',
-        newHtml: '<p class="diff-p">为防止单端口广播风暴跨域影响，建议在不同业务 VLAN 间启用端口隔离组 (port-isolate group 1~32)，避免不必要的二层数据互通。</p>' },
-      { id: 'c1-2-2mid', type: 'text', status: 'keep', title: '端口默认值说明',
-        contentHtml: '<p class="diff-p">下表给出各端口类型的出厂默认配置；如需修改，可通过 interface 接口视图命令行调整。</p>' },
-      { id: 'c1-2-2t1', type: 'table', status: 'chg', title: '端口默认参数',
-        oldHtml: '<table class="data-table"><caption>表 1-2 端口默认参数 (V1.8)</caption><thead><tr><th>端口类型</th><th>速率</th><th>双工</th><th>流控</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>全双工</td><td class="cell-del">关闭</td></tr><tr><td>10GE 光口</td><td class="cell-del">10 Gbps</td><td>全双工</td><td class="cell-del">关闭</td></tr></tbody></table>',
-        newHtml: '<table class="data-table"><caption>表 1-2 端口默认参数 (V1.9)</caption><thead><tr><th>端口类型</th><th>速率</th><th>双工</th><th>流控</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>全双工</td><td class="cell-add">开启</td></tr><tr><td>10GE 光口</td><td class="cell-add">25 Gbps</td><td>全双工</td><td class="cell-add">开启</td></tr><tr><td class="cell-add">25GE 光口</td><td class="cell-add">25 Gbps</td><td class="cell-add">全双工</td><td class="cell-add">开启</td></tr></tbody></table>' },
-      { id: 'c1-2-2img', type: 'image', status: 'chg', title: '组网拓扑',
-        oldImage: 'assets/images/topo_v1.svg', newImage: 'assets/images/topo_v2.svg',
-        oldCaption: 'V1.8 拓扑 (单上联)', newCaption: 'V1.9 拓扑 (双上联冗余)',
-        oldHash: 'a3f1d2…', newHash: 'b8c4e0…' },
-      { id: 'c1-2-2tail', type: 'text', status: 'keep', title: '部署提示',
-        contentHtml: '<p class="diff-p">在双上联冗余场景下，应配合 MSTP/VRRP 使用，以保证二层无环与三层网关切换。</p>' },
-
-      { id: 'c1-2-3h', type: 'heading', level: 3, status: 'del', title: '1.2.3 端口速率限制',
-        oldHtml: '<h3 class="diff-h">1.2.3 <span class="del">端口速率限制</span></h3>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-      { id: 'c1-2-3p1', type: 'text', status: 'del', title: '限速策略',
-        oldHtml: '<p class="diff-p"><span class="del">每端口支持基于 CAR (Committed Access Rate) 的入方向限速，最低步长 64 kbps，最大 4 Gbps。</span></p>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-
-      { id: 'c1-3h', type: 'heading', level: 2, status: 'keep', title: '1.3 硬件规格',
-        contentHtml: '<h2 class="diff-h">1.3 硬件规格</h2>' },
-      { id: 'c1-3p', type: 'text', status: 'keep', title: '外形',
-        contentHtml: '<p class="diff-p">S5700 采用 1U 标准 19 英寸机箱，支持前后通风，适合高密度数据中心与园区接入部署。</p>' },
-      { id: 'c1-3t', type: 'table', status: 'keep', title: '型号规格',
-        contentHtml: '<table class="data-table"><caption>表 1-3 S5700 型号规格</caption><thead><tr><th>型号</th><th>下行端口</th><th>上行端口</th><th>功耗</th></tr></thead><tbody><tr><td>S5700-24</td><td>24 GE</td><td>4×10GE</td><td><120 W</td></tr><tr><td>S5700-48</td><td>48 GE</td><td>4×10GE</td><td><160 W</td></tr></tbody></table>' }
+  "paragraphsByChapter": {
+    "ch1-3": [
+      {
+        "id": "p1",
+        "type": "heading",
+        "status": "keep",
+        "level": 2,
+        "title": "修订历史",
+        "contentHtml": "<h2 class=\"diff-h\">修订历史</h2>"
+      },
+      {
+        "id": "p2",
+        "type": "table",
+        "status": "chg",
+        "level": null,
+        "title": "修订历史表 (RAN10.1)\n版本发布日期修订",
+        "oldHtml": "<table class=\"data-table\"><caption>修订历史表 (RAN10.1)</caption>\n<thead><tr><th>版本</th><th>发布日期</th><th>修订要点</th></tr></thead>\n<tbody>\n<tr><td>RAN10.1.0</td><td>2024-03-15</td><td>首次发布 RAN10.1 基线版本</td></tr><tr><td>RAN10.1.1</td><td>2024-06-15</td><td>新增 gNB 接口与流量章节修订</td></tr></tbody></table>",
+        "newHtml": "<table class=\"data-table\"><caption>修订历史表 (RAN10.2)</caption>\n<thead><tr><th>版本</th><th>发布日期</th><th>修订要点</th></tr></thead>\n<tbody>\n<tr><td>RAN10.1.0</td><td>2024-03-15</td><td>首次发布 RAN10.1 基线版本</td></tr><tr><td>RAN10.1.1</td><td>2024-06-15</td><td>新增 gNB 接口与流量章节修订</td></tr><tr><td class=\"cell-add\">RAN10.2.0</td><td class=\"cell-add\">2024-09-15</td><td class=\"cell-add\">RAN10.2 基线版本：新增 VLAN 隔离与管理面状态扩展</td></tr></tbody></table>"
+      },
+      {
+        "id": "p3",
+        "type": "text",
+        "status": "add",
+        "level": null,
+        "title": "后续修订历史将由 RAN10.2 维护团队维护，",
+        "oldHtml": "<div class=\"diff-empty\">(旧版本无此内容)</div>",
+        "newHtml": "<p class=\"diff-p\">后续修订历史将由 RAN10.2 维护团队维护，RAN10.1 进入冻结状态不再追加新条目。</p>"
+      }
     ],
-
-    // ============ 1.1 产品定位 (单节) ============
-    'ch1-1': [
-      { id: 'c11-h', type: 'heading', level: 2, status: 'add', title: '1.1 产品定位',
-        oldHtml: '<div class="diff-empty">(旧版本无此节)</div>',
-        newHtml: '<h2 class="diff-h">1.1 产品定位</h2>' },
-      { id: 'c11-p1', type: 'text', status: 'add', title: '产品简介',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<p class="diff-p">S5700 系列交换机是面向企业园区网接入/汇聚层的高性能千兆以太网交换机，提供 24/48 个 GE 下行端口及 4 个 10GE SFP+ 上行端口，支持堆叠、虚拟化、IPv6 等丰富特性。</p>' },
-      { id: 'c11-l1', type: 'list', status: 'add', title: '核心特性',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<ul class="data-list"><li>24/48 个 GE 下行端口</li><li>4 个 10GE SFP+ 上行端口</li><li>堆叠 (iStack)、虚拟化 (CSS)、IPv6 双栈</li></ul>' }
+    "ch1-2-3": [
+      {
+        "id": "p1",
+        "type": "heading",
+        "status": "add",
+        "level": 2,
+        "title": "VLAN 隔离特性概述",
+        "oldHtml": "<div class=\"diff-empty\">(旧版本无此内容)</div>",
+        "newHtml": "<h2 class=\"diff-h\">VLAN 隔离特性概述</h2>"
+      },
+      {
+        "id": "p2",
+        "type": "text",
+        "status": "add",
+        "level": null,
+        "title": "本章节为 RAN10.2 新增功能，描述 5G ",
+        "oldHtml": "<div class=\"diff-empty\">(旧版本无此内容)</div>",
+        "newHtml": "<p class=\"diff-p\">本章节为 RAN10.2 新增功能，描述 5G RAN 在用户面与控制面分离场景下 VLAN 隔离的实现方式与\n典型部署约束，避免不同业务 VLAN 间的二层数据互通。</p>"
+      },
+      {
+        "id": "p3",
+        "type": "heading",
+        "status": "add",
+        "level": 3,
+        "title": "典型部署约束",
+        "oldHtml": "<div class=\"diff-empty\">(旧版本无此内容)</div>",
+        "newHtml": "<h3 class=\"diff-h\">典型部署约束</h3>"
+      },
+      {
+        "id": "p4",
+        "type": "list",
+        "status": "add",
+        "level": null,
+        "title": "同一 VLAN 内的 gNB 节点应部署在同一物",
+        "oldHtml": "<div class=\"diff-empty\">(旧版本无此内容)</div>",
+        "newHtml": "<ul class=\"data-list\"><li>同一 VLAN 内的 gNB 节点应部署在同一物理子网，避免跨网段转发</li>\n<li>不同业务 VLAN 间启用端口隔离组 (port-isolate group)</li>\n<li>多租户场景推荐使用 VLAN Mapping + VRF 实现三层隔离</li></ul>"
+      }
     ],
-
-    // ============ 1.2 功能特性 (整节, 含 1.2.1/1.2.2/1.2.3 子节 inline) ============
-    'ch1-2': [
-      { id: 'c12-intro', type: 'text', status: 'keep', title: '本节概述',
-        contentHtml: '<p class="diff-p">本节列出 S5700 的接口类型、组网限制与端口速率等关键特性，作为产品规划与运维参考。</p>' },
-
-      { id: 'c12-2-1h', type: 'heading', level: 3, status: 'keep', title: '1.2.1 接口类型',
-        contentHtml: '<h3 class="diff-h">1.2.1 接口类型</h3>' },
-      { id: 'c12-2-1p', type: 'text', status: 'keep', title: '接口概述',
-        contentHtml: '<p class="diff-p">S5700 提供丰富的端口形态，包括 GE 电口、GE 光口 (SFP)、10GE 光口 (SFP+)，下行带宽 48 Gbps，上行带宽 40 Gbps。</p>' },
-      { id: 'c12-2-1t', type: 'table', status: 'keep', title: '接口规格',
-        contentHtml: '<table class="data-table"><caption>表 1-1 S5700 接口规格</caption><thead><tr><th>接口</th><th>速率</th><th>介质</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>双绞线 Cat5e+</td></tr><tr><td>GE 光口</td><td>1 Gbps</td><td>SFP</td></tr><tr><td>10GE 光口</td><td>10 Gbps</td><td>SFP+</td></tr></tbody></table>' },
-
-      { id: 'c12-2-2h', type: 'heading', level: 3, status: 'chg', title: '1.2.2 组网限制',
-        oldHtml: '<h3 class="diff-h">1.2.2 <span class="del">组网限制</span></h3>',
-        newHtml: '<h3 class="diff-h">1.2.2 <span class="add">端口组网限制</span></h3>' },
-      { id: 'c12-2-2intro', type: 'text', status: 'keep', title: '概述',
-        contentHtml: '<p class="diff-p">本节描述 S5700 在典型园区组网场景下的部署约束与建议。</p>' },
-      { id: 'c12-2-2p1', type: 'text', status: 'chg', title: '端口速率限制',
-        oldHtml: '<p class="diff-p">接口速率上限为 <span class="del">1 Gbps</span>，下行端口支持半双工/全双工模式，最大转发速率 1.4 Mpps。</p>',
-        newHtml: '<p class="diff-p">接口速率上限为 <span class="add">10 Gbps</span>，下行端口支持半双工/全双工模式与<span class="add">硬件流控</span>，最大转发速率 <span class="chg">14 Mpps</span>。</p>' },
-      { id: 'c12-2-2p2', type: 'text', status: 'add', title: '端口隔离原则',
-        oldHtml: '<div class="diff-empty">(新增内容)</div>',
-        newHtml: '<p class="diff-p">为防止单端口广播风暴跨域影响，建议在不同业务 VLAN 间启用端口隔离组 (port-isolate group 1~32)，避免不必要的二层数据互通。</p>' },
-      { id: 'c12-2-2mid', type: 'text', status: 'keep', title: '端口默认值说明',
-        contentHtml: '<p class="diff-p">下表给出各端口类型的出厂默认配置；如需修改，可通过 interface 接口视图命令行调整。</p>' },
-      { id: 'c12-2-2t1', type: 'table', status: 'chg', title: '端口默认参数',
-        oldHtml: '<table class="data-table"><caption>表 1-2 端口默认参数 (V1.8)</caption><thead><tr><th>端口类型</th><th>速率</th><th>双工</th><th>流控</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>全双工</td><td class="cell-del">关闭</td></tr><tr><td>10GE 光口</td><td class="cell-del">10 Gbps</td><td>全双工</td><td class="cell-del">关闭</td></tr></tbody></table>',
-        newHtml: '<table class="data-table"><caption>表 1-2 端口默认参数 (V1.9)</caption><thead><tr><th>端口类型</th><th>速率</th><th>双工</th><th>流控</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>全双工</td><td class="cell-add">开启</td></tr><tr><td>10GE 光口</td><td class="cell-add">25 Gbps</td><td>全双工</td><td class="cell-add">开启</td></tr><tr><td class="cell-add">25GE 光口</td><td class="cell-add">25 Gbps</td><td class="cell-add">全双工</td><td class="cell-add">开启</td></tr></tbody></table>' },
-      { id: 'c12-2-2img', type: 'image', status: 'chg', title: '组网拓扑',
-        oldImage: 'assets/images/topo_v1.svg', newImage: 'assets/images/topo_v2.svg',
-        oldCaption: 'V1.8 拓扑 (单上联)', newCaption: 'V1.9 拓扑 (双上联冗余)',
-        oldHash: 'a3f1d2…', newHash: 'b8c4e0…' },
-      { id: 'c12-2-2tail', type: 'text', status: 'keep', title: '部署提示',
-        contentHtml: '<p class="diff-p">在双上联冗余场景下，应配合 MSTP/VRRP 使用，以保证二层无环与三层网关切换。</p>' },
-
-      { id: 'c12-2-3h', type: 'heading', level: 3, status: 'del', title: '1.2.3 端口速率限制',
-        oldHtml: '<h3 class="diff-h">1.2.3 <span class="del">端口速率限制</span></h3>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-      { id: 'c12-2-3p1', type: 'text', status: 'del', title: '限速策略',
-        oldHtml: '<p class="diff-p"><span class="del">每端口支持基于 CAR (Committed Access Rate) 的入方向限速，最低步长 64 kbps，最大 4 Gbps。</span></p>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' }
+    "ch1-2-2": [
+      {
+        "id": "p1",
+        "type": "text",
+        "status": "del",
+        "level": null,
+        "title": "本章节描述 5G RAN10.1 的流量控制策略",
+        "oldHtml": "<p class=\"diff-p\">本章节描述 5G RAN10.1 的流量控制策略，包括全局速率限制、流分类与队列调度机制；\n该章节在 RAN10.2 中被合并到 <b>接口与流量</b> 总章节，本章不再独立维护。</p>",
+        "newHtml": "<div class=\"diff-empty\">(新版本中已删除)</div>"
+      },
+      {
+        "id": "p2",
+        "type": "text",
+        "status": "del",
+        "level": null,
+        "title": "默认队列调度算法采用 SP + WRR，单板最大",
+        "oldHtml": "<p class=\"diff-p\">默认队列调度算法采用 <code>SP + WRR</code>，单板最大支持 8 个调度队列。</p>",
+        "newHtml": "<div class=\"diff-empty\">(新版本中已删除)</div>"
+      }
     ],
-
-    // ============ 1.2.1 接口类型 (单节, 整体无变更) ============
-    'ch1-2-1': [
-      { id: 'c121-h', type: 'heading', level: 3, status: 'keep', title: '1.2.1 接口类型',
-        contentHtml: '<h3 class="diff-h">1.2.1 接口类型</h3>' },
-      { id: 'c121-p1', type: 'text', status: 'keep', title: '接口概述',
-        contentHtml: '<p class="diff-p">S5700 提供丰富的端口形态，包括 GE 电口、GE 光口 (SFP)、10GE 光口 (SFP+)，下行带宽 48 Gbps，上行带宽 40 Gbps。</p>' },
-      { id: 'c121-t1', type: 'table', status: 'keep', title: '接口规格',
-        contentHtml: '<table class="data-table"><caption>表 1-1 S5700 接口规格</caption><thead><tr><th>接口</th><th>速率</th><th>介质</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>双绞线 Cat5e+</td></tr><tr><td>GE 光口</td><td>1 Gbps</td><td>SFP</td></tr><tr><td>10GE 光口</td><td>10 Gbps</td><td>SFP+</td></tr></tbody></table>' }
+    "ch1-2-1": [
+      {
+        "id": "p1",
+        "type": "heading",
+        "status": "chg",
+        "level": 2,
+        "title": "状态接口说明",
+        "oldHtml": "<h2 class=\"diff-h\">状态接口<span class=\"del\">概述</span></h2>",
+        "newHtml": "<h2 class=\"diff-h\">状态接口<span class=\"add\">说明</span></h2>"
+      },
+      {
+        "id": "p2",
+        "type": "text",
+        "status": "chg",
+        "level": null,
+        "title": "状态接口用于上报 RAN 节点运行状态，包括 C",
+        "oldHtml": "<p class=\"diff-p\">状态接口用于上报 RAN 节点运行状态，包括 CPU 利用率、内存占用、链路通断、连接数<span class=\"del\">与</span>告警聚合信息，<span class=\"del\">\n</span>为运维系统提供基础监控数据来源。</p>",
+        "newHtml": "<p class=\"diff-p\">状态接口用于上报 RAN 节点运行状态，包括 CPU 利用率、内存占用、链路通断、连接数<span class=\"add\">、</span>告警聚合信息<span class=\"add\">与\n<b>电源状态</b></span>，为运维系统提供基础监控数据来源<span class=\"add\">，并支持按需推送到第三方监控平台</span>。</p>"
+      },
+      {
+        "id": "p3",
+        "type": "table",
+        "status": "chg",
+        "level": null,
+        "title": "表 3-1 RAN10.1 状态接口字段\n字段类",
+        "oldHtml": "<table class=\"data-table\"><caption>表 3-1 RAN10.1 状态接口字段</caption>\n<thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>\n<tbody>\n<tr><td>cpu_usage</td><td>int</td><td>CPU 利用率百分比</td></tr><tr><td>mem_usage</td><td>int</td><td>内存利用率百分比</td></tr><tr><td>link_status</td><td>bitset</td><td>链路状态位图</td></tr></tbody></table>",
+        "newHtml": "<table class=\"data-table\"><caption>表 3-1 RAN10.2 状态接口字段</caption>\n<thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>\n<tbody>\n<tr><td>cpu_usage</td><td>int</td><td>CPU 利用率百分比</td></tr><tr><td>mem_usage</td><td>int</td><td>内存利用率百分比</td></tr><tr><td>link_status</td><td>bitset</td><td>链路状态位图</td></tr><tr><td class=\"cell-add\">power_state</td><td class=\"cell-add\">enum</td><td class=\"cell-add\">电源状态 (ON/OFF/STANDBY)</td></tr></tbody></table>"
+      }
     ],
-
-    // ============ 1.2.2 组网限制 (单节) ============
-    'ch1-2-2': [
-      { id: 'c122-h', type: 'heading', level: 3, status: 'chg', title: '1.2.2 组网限制',
-        oldHtml: '<h3 class="diff-h">1.2.2 <span class="del">组网限制</span></h3>',
-        newHtml: '<h3 class="diff-h">1.2.2 <span class="add">端口组网限制</span></h3>' },
-      { id: 'c122-intro', type: 'text', status: 'keep', title: '概述',
-        contentHtml: '<p class="diff-p">本节描述 S5700 在典型园区组网场景下的部署约束与建议。</p>' },
-      { id: 'c122-p1', type: 'text', status: 'chg', title: '端口速率限制',
-        oldHtml: '<p class="diff-p">接口速率上限为 <span class="del">1 Gbps</span>，下行端口支持半双工/全双工模式，最大转发速率 1.4 Mpps。</p>',
-        newHtml: '<p class="diff-p">接口速率上限为 <span class="add">10 Gbps</span>，下行端口支持半双工/全双工模式与<span class="add">硬件流控</span>，最大转发速率 <span class="chg">14 Mpps</span>。</p>' },
-      { id: 'c122-p2', type: 'text', status: 'add', title: '端口隔离原则',
-        oldHtml: '<div class="diff-empty">(新增内容)</div>',
-        newHtml: '<p class="diff-p">为防止单端口广播风暴跨域影响，建议在不同业务 VLAN 间启用端口隔离组 (port-isolate group 1~32)，避免不必要的二层数据互通。</p>' },
-      { id: 'c122-mid', type: 'text', status: 'keep', title: '端口默认值说明',
-        contentHtml: '<p class="diff-p">下表给出各端口类型的出厂默认配置；如需修改，可通过 interface 接口视图命令行调整。</p>' },
-      { id: 'c122-t1', type: 'table', status: 'chg', title: '端口默认参数',
-        oldHtml: '<table class="data-table"><caption>表 1-2 端口默认参数 (V1.8)</caption><thead><tr><th>端口类型</th><th>速率</th><th>双工</th><th>流控</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>全双工</td><td class="cell-del">关闭</td></tr><tr><td>10GE 光口</td><td class="cell-del">10 Gbps</td><td>全双工</td><td class="cell-del">关闭</td></tr></tbody></table>',
-        newHtml: '<table class="data-table"><caption>表 1-2 端口默认参数 (V1.9)</caption><thead><tr><th>端口类型</th><th>速率</th><th>双工</th><th>流控</th></tr></thead><tbody><tr><td>GE 电口</td><td>1 Gbps</td><td>全双工</td><td class="cell-add">开启</td></tr><tr><td>10GE 光口</td><td class="cell-add">25 Gbps</td><td>全双工</td><td class="cell-add">开启</td></tr><tr><td class="cell-add">25GE 光口</td><td class="cell-add">25 Gbps</td><td class="cell-add">全双工</td><td class="cell-add">开启</td></tr></tbody></table>' },
-      { id: 'c122-img', type: 'image', status: 'chg', title: '组网拓扑',
-        oldImage: 'assets/images/topo_v1.svg', newImage: 'assets/images/topo_v2.svg',
-        oldCaption: 'V1.8 拓扑 (单上联)', newCaption: 'V1.9 拓扑 (双上联冗余)',
-        oldHash: 'a3f1d2…', newHash: 'b8c4e0…' },
-      { id: 'c122-tail', type: 'text', status: 'keep', title: '部署提示',
-        contentHtml: '<p class="diff-p">在双上联冗余场景下，应配合 MSTP/VRRP 使用，以保证二层无环与三层网关切换。</p>' }
+    "ch1-1": [
+      {
+        "id": "p1",
+        "type": "text",
+        "status": "chg",
+        "level": null,
+        "title": "本特性文档面向 5G RAN 网络规划与运维人员",
+        "oldHtml": "<p class=\"diff-p\">本特性文档面向 5G RAN 网络规划与运维人员，介绍 5G RAN10.<span class=\"del\">1</span> 系统的设备组成、功能特性、\n修订历史与文档体系结构等信息，便于读者快速了解产品定位与改造范围。</p>",
+        "newHtml": "<p class=\"diff-p\">本特性文档面向 5G RAN 网络规划与运维人员，介绍 5G RAN10.<span class=\"add\">2</span> 系统的设备组成、功能特性、\n修订历史与文档体系结构等信息，便于读者快速了解产品定位与改造范围。</p>"
+      },
+      {
+        "id": "p2",
+        "type": "text",
+        "status": "keep",
+        "level": null,
+        "title": "文档采用层级结构组织：特性文档 为顶层目录，下含",
+        "contentHtml": "<p class=\"diff-p\">文档采用层级结构组织：<b>特性文档</b> 为顶层目录，下含 <b>文档包信息</b>、\n<b>接口与流量</b>、<b>修订历史</b> 等章节。如需了解具体子模块，可在左侧章节树点击向下展开。</p>"
+      }
     ],
-
-    // ============ 1.2.3 端口速率限制 (单节, 整节删除) ============
-    'ch1-2-3': [
-      { id: 'c123-h', type: 'heading', level: 3, status: 'del', title: '1.2.3 端口速率限制',
-        oldHtml: '<h3 class="diff-h">1.2.3 <span class="del">端口速率限制</span></h3>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-      { id: 'c123-p1', type: 'text', status: 'del', title: '限速策略',
-        oldHtml: '<p class="diff-p"><span class="del">每端口支持基于 CAR (Committed Access Rate) 的入方向限速，最低步长 64 kbps，最大 4 Gbps。</span></p>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' }
-    ],
-
-    // ============ 1.3 硬件规格 (单节, 整节无变更) ============
-    'ch1-3': [
-      { id: 'c13-h', type: 'heading', level: 2, status: 'keep', title: '1.3 硬件规格',
-        contentHtml: '<h2 class="diff-h">1.3 硬件规格</h2>' },
-      { id: 'c13-p', type: 'text', status: 'keep', title: '外形',
-        contentHtml: '<p class="diff-p">S5700 采用 1U 标准 19 英寸机箱，支持前后通风，适合高密度数据中心与园区接入部署。</p>' },
-      { id: 'c13-t', type: 'table', status: 'keep', title: '型号规格',
-        contentHtml: '<table class="data-table"><caption>表 1-3 S5700 型号规格</caption><thead><tr><th>型号</th><th>下行端口</th><th>上行端口</th><th>功耗</th></tr></thead><tbody><tr><td>S5700-24</td><td>24 GE</td><td>4×10GE</td><td><120 W</td></tr><tr><td>S5700-48</td><td>48 GE</td><td>4×10GE</td><td><160 W</td></tr></tbody></table>' }
-    ],
-
-    // ============ 2 配置指南 (整章) ============
-    'ch2': [
-      { id: 'c2-i0', type: 'text', status: 'keep', title: '章节概述',
-        contentHtml: '<p class="diff-p">本章节描述 S5700 的初始化、VLAN、安全与链路聚合等常见配置场景，作为运维参考。</p>' },
-
-      { id: 'c2-1h', type: 'heading', level: 2, status: 'keep', title: '2.1 初始配置',
-        contentHtml: '<h2 class="diff-h">2.1 初始配置</h2>' },
-      { id: 'c2-1p1', type: 'text', status: 'keep', title: '准备工作',
-        contentHtml: '<p class="diff-p">开箱后请先通过 Console 口登录设备，完成主机名、管理 IP、SSH 用户开通等基础配置。</p>' },
-      { id: 'c2-1l1', type: 'list', status: 'keep', title: '初始配置步骤',
-        contentHtml: '<ul class="data-list"><li>Console 口连接与波特率配置 (9600 8N1)</li><li>设备命名: sysname S5700-Edge</li><li>管理 VLAN 与管理 IP 配置</li><li>SSH 用户与 AAA 远程认证</li></ul>' },
-
-      { id: 'c2-2h', type: 'heading', level: 2, status: 'del', title: '2.2 VLAN 配置',
-        oldHtml: '<h2 class="diff-h">2.2 <span class="del">VLAN 配置</span></h2>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-      { id: 'c2-2p1', type: 'text', status: 'del', title: 'VLAN 创建',
-        oldHtml: '<p class="diff-p"><span class="del">使用 vlan batch 10 20 30 命令可批量创建 VLAN，且支持 1~4094 范围。</span></p>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-      { id: 'c2-2t1', type: 'table', status: 'del', title: 'VLAN 常用命令',
-        oldHtml: '<table class="data-table"><caption>表 2-1 VLAN 常用命令 (V1.8)</caption><thead><tr><th>操作</th><th>命令</th></tr></thead><tbody><tr><td>创建 VLAN</td><td class="cell-del">vlan batch 10 20</td></tr><tr><td>命名 VLAN</td><td class="cell-del">vlan 10 description user-zone</td></tr><tr><td>查看 VLAN</td><td class="cell-del">display vlan</td></tr></tbody></table>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-
-      { id: 'c2-3h', type: 'heading', level: 2, status: 'add', title: '2.3 安全配置',
-        oldHtml: '<div class="diff-empty">(旧版本无此节)</div>',
-        newHtml: '<h2 class="diff-h">2.3 安全配置</h2>' },
-      { id: 'c2-3p1', type: 'text', status: 'add', title: 'ACL 配置',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<p class="diff-p">支持基于 ACL 3000-3999 的 IPv4 高级访问控制列表，可对五元组精确匹配，单板最大规则数 <span class="add">8192</span> 条。</p>' },
-      { id: 'c2-3t1', type: 'table', status: 'add', title: '安全特性矩阵',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<table class="data-table"><caption>表 2-2 安全特性支持矩阵 (V1.9 新增)</caption><thead><tr><th>特性</th><th>支持版本</th><th>说明</th></tr></thead><tbody><tr><td>ACL</td><td class="cell-add">V1.9+</td><td class="cell-add">IPv4/IPv6 双栈</td></tr><tr><td>ARP 防护</td><td class="cell-add">V1.9+</td><td class="cell-add">动态 ARP 检测 + IP-MAC 绑定</td></tr><tr><td>端口安全</td><td class="cell-add">V1.9+</td><td class="cell-add">MAC 限制 + Sticky MAC</td></tr></tbody></table>' },
-      { id: 'c2-3l1', type: 'list', status: 'add', title: '新增命令',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<ul class="data-list"><li><span class="add">display acl all</span>: 查看所有 ACL</li><li><span class="add">traffic-filter inbound acl 3001</span>: 端口入方向应用 ACL</li><li><span class="add">arp detection</span>: 启用动态 ARP 检测</li></ul>' },
-
-      { id: 'c2-4h', type: 'heading', level: 2, status: 'chg', title: '2.4 接口聚合',
-        oldHtml: '<h2 class="diff-h">2.4 <span class="del">接口聚合</span></h2>',
-        newHtml: '<h2 class="diff-h">2.4 <span class="add">链路聚合 (Eth-Trunk)</span></h2>' },
-      { id: 'c2-4intro', type: 'text', status: 'keep', title: '概述',
-        contentHtml: '<p class="diff-p">Eth-Trunk (链路聚合) 将多条物理链路捆绑为一条逻辑链路，提升带宽并提供链路冗余。</p>' },
-      { id: 'c2-4p1', type: 'text', status: 'chg', title: '聚合模式',
-        oldHtml: '<p class="diff-p">S5700 支持<span class="del">手工负载分担</span>模式聚合，最大<span class="del">8</span>条成员链路。</p>',
-        newHtml: '<p class="diff-p">S5700 支持<span class="add">手工负载分担 + LACP 动态聚合</span>模式，最大<span class="add">16</span>条成员链路，单 Eth-Trunk 转发带宽提升至 <span class="add">160 Gbps</span>。</p>' },
-      { id: 'c2-4t1', type: 'table', status: 'chg', title: '聚合模式对照',
-        oldHtml: '<table class="data-table"><caption>表 2-3 Eth-Trunk 模式 (V1.8)</caption><thead><tr><th>模式</th><th>成员数上限</th><th>负载分担</th></tr></thead><tbody><tr><td>手工</td><td>8</td><td>源/目的 MAC</td></tr><tr><td class="cell-empty">LACP</td><td class="cell-empty">—</td><td class="cell-empty">未支持</td></tr></tbody></table>',
-        newHtml: '<table class="data-table"><caption>表 2-3 Eth-Trunk 模式 (V1.9)</caption><thead><tr><th>模式</th><th>成员数上限</th><th>负载分担</th></tr></thead><tbody><tr><td>手工</td><td class="cell-chg">16</td><td>源/目的 MAC + IP</td></tr><tr><td class="cell-add">LACP 动态</td><td class="cell-add">16</td><td class="cell-add">源/目的 MAC + IP + 端口</td></tr></tbody></table>' },
-      { id: 'c2-4l1', type: 'list', status: 'keep', title: '配置建议',
-        contentHtml: '<ul class="data-list"><li>同一 Eth-Trunk 内成员链路速率、双工需一致</li><li>跨设备堆叠场景支持跨框聚合 (CSS)</li><li>负载分担建议源+目的 IP+端口五元组</li></ul>' }
-    ],
-
-    // ============ 2.1 初始配置 (单节, 整节无变更) ============
-    'ch2-1': [
-      { id: 'c21-h', type: 'heading', level: 2, status: 'keep', title: '2.1 初始配置',
-        contentHtml: '<h2 class="diff-h">2.1 初始配置</h2>' },
-      { id: 'c21-p1', type: 'text', status: 'keep', title: '准备工作',
-        contentHtml: '<p class="diff-p">开箱后请先通过 Console 口登录设备，完成主机名、管理 IP、SSH 用户开通等基础配置。</p>' },
-      { id: 'c21-l1', type: 'list', status: 'keep', title: '初始配置步骤',
-        contentHtml: '<ul class="data-list"><li>Console 口连接与波特率配置 (9600 8N1)</li><li>设备命名: sysname S5700-Edge</li><li>管理 VLAN 与管理 IP 配置</li><li>SSH 用户与 AAA 远程认证</li></ul>' }
-    ],
-
-    // ============ 2.2 VLAN 配置 (单节, 整节删除) ============
-    'ch2-2': [
-      { id: 'c22-h', type: 'heading', level: 2, status: 'del', title: '2.2 VLAN 配置',
-        oldHtml: '<h2 class="diff-h">2.2 <span class="del">VLAN 配置</span></h2>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-      { id: 'c22-p1', type: 'text', status: 'del', title: 'VLAN 创建',
-        oldHtml: '<p class="diff-p"><span class="del">使用 vlan batch 10 20 30 命令可批量创建 VLAN，且支持 1~4094 范围。</span></p>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' },
-      { id: 'c22-t1', type: 'table', status: 'del', title: 'VLAN 常用命令',
-        oldHtml: '<table class="data-table"><caption>表 2-1 VLAN 常用命令 (V1.8)</caption><thead><tr><th>操作</th><th>命令</th></tr></thead><tbody><tr><td>创建 VLAN</td><td class="cell-del">vlan batch 10 20</td></tr><tr><td>命名 VLAN</td><td class="cell-del">vlan 10 description user-zone</td></tr><tr><td>查看 VLAN</td><td class="cell-del">display vlan</td></tr></tbody></table>',
-        newHtml: '<div class="diff-empty">(新版本中已删除)</div>' }
-    ],
-
-    // ============ 2.3 安全配置 (单节, 整节新增) ============
-    'ch2-3': [
-      { id: 'c23-h', type: 'heading', level: 2, status: 'add', title: '2.3 安全配置',
-        oldHtml: '<div class="diff-empty">(旧版本无此节)</div>',
-        newHtml: '<h2 class="diff-h">2.3 安全配置</h2>' },
-      { id: 'c23-p1', type: 'text', status: 'add', title: 'ACL 配置',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<p class="diff-p">支持基于 ACL 3000-3999 的 IPv4 高级访问控制列表，可对五元组精确匹配，单板最大规则数 <span class="add">8192</span> 条。</p>' },
-      { id: 'c23-t1', type: 'table', status: 'add', title: '安全特性矩阵',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<table class="data-table"><caption>表 2-2 安全特性支持矩阵 (V1.9 新增)</caption><thead><tr><th>特性</th><th>支持版本</th><th>说明</th></tr></thead><tbody><tr><td>ACL</td><td class="cell-add">V1.9+</td><td class="cell-add">IPv4/IPv6 双栈</td></tr><tr><td>ARP 防护</td><td class="cell-add">V1.9+</td><td class="cell-add">动态 ARP 检测 + IP-MAC 绑定</td></tr><tr><td>端口安全</td><td class="cell-add">V1.9+</td><td class="cell-add">MAC 限制 + Sticky MAC</td></tr></tbody></table>' },
-      { id: 'c23-l1', type: 'list', status: 'add', title: '新增命令',
-        oldHtml: '<div class="diff-empty">(旧版本无此内容)</div>',
-        newHtml: '<ul class="data-list"><li><span class="add">display acl all</span>: 查看所有 ACL</li><li><span class="add">traffic-filter inbound acl 3001</span>: 端口入方向应用 ACL</li><li><span class="add">arp detection</span>: 启用动态 ARP 检测</li></ul>' }
-    ],
-
-    // ============ 2.4 接口聚合 (单节) ============
-    'ch2-4': [
-      { id: 'c24-h', type: 'heading', level: 2, status: 'chg', title: '2.4 接口聚合',
-        oldHtml: '<h2 class="diff-h">2.4 <span class="del">接口聚合</span></h2>',
-        newHtml: '<h2 class="diff-h">2.4 <span class="add">链路聚合 (Eth-Trunk)</span></h2>' },
-      { id: 'c24-intro', type: 'text', status: 'keep', title: '概述',
-        contentHtml: '<p class="diff-p">Eth-Trunk (链路聚合) 将多条物理链路捆绑为一条逻辑链路，提升带宽并提供链路冗余。</p>' },
-      { id: 'c24-p1', type: 'text', status: 'chg', title: '聚合模式',
-        oldHtml: '<p class="diff-p">S5700 支持<span class="del">手工负载分担</span>模式聚合，最大<span class="del">8</span>条成员链路。</p>',
-        newHtml: '<p class="diff-p">S5700 支持<span class="add">手工负载分担 + LACP 动态聚合</span>模式，最大<span class="add">16</span>条成员链路，单 Eth-Trunk 转发带宽提升至 <span class="add">160 Gbps</span>。</p>' },
-      { id: 'c24-t1', type: 'table', status: 'chg', title: '聚合模式对照',
-        oldHtml: '<table class="data-table"><caption>表 2-3 Eth-Trunk 模式 (V1.8)</caption><thead><tr><th>模式</th><th>成员数上限</th><th>负载分担</th></tr></thead><tbody><tr><td>手工</td><td>8</td><td>源/目的 MAC</td></tr><tr><td class="cell-empty">LACP</td><td class="cell-empty">—</td><td class="cell-empty">未支持</td></tr></tbody></table>',
-        newHtml: '<table class="data-table"><caption>表 2-3 Eth-Trunk 模式 (V1.9)</caption><thead><tr><th>模式</th><th>成员数上限</th><th>负载分担</th></tr></thead><tbody><tr><td>手工</td><td class="cell-chg">16</td><td>源/目的 MAC + IP</td></tr><tr><td class="cell-add">LACP 动态</td><td class="cell-add">16</td><td class="cell-add">源/目的 MAC + IP + 端口</td></tr></tbody></table>' },
-      { id: 'c24-l1', type: 'list', status: 'keep', title: '配置建议',
-        contentHtml: '<ul class="data-list"><li>同一 Eth-Trunk 内成员链路速率、双工需一致</li><li>跨设备堆叠场景支持跨框聚合 (CSS)</li><li>负载分担建议源+目的 IP+端口五元组</li></ul>' }
+    "ch1-1-1": [
+      {
+        "id": "p1",
+        "type": "heading",
+        "status": "keep",
+        "level": 2,
+        "title": "无线文档体系概述",
+        "contentHtml": "<h2 class=\"diff-h\">无线文档体系概述</h2>"
+      },
+      {
+        "id": "p2",
+        "type": "text",
+        "status": "chg",
+        "level": null,
+        "title": "本章介绍 5G RAN10.2 各功能平台文档的",
+        "oldHtml": "<p class=\"diff-p\">本章介绍 5G RAN10.<span class=\"del\">1</span> 各功能平台文档的组成与存放规则，并说明无线文档体系的层级划分、版本管理与发布流程。</p>",
+        "newHtml": "<p class=\"diff-p\">本章介绍 5G RAN10.<span class=\"add\">2</span> 各功能平台文档的组成与存放规则，并说明无线文档体系的层级划分、版本管理与发布流程。</p>"
+      },
+      {
+        "id": "p3",
+        "type": "heading",
+        "status": "keep",
+        "level": 3,
+        "title": "文档层级结构",
+        "contentHtml": "<h3 class=\"diff-h\">文档层级结构</h3>"
+      },
+      {
+        "id": "p4",
+        "type": "text",
+        "status": "chg",
+        "level": null,
+        "title": "无线文档体系按 特性文档 → 子模块文档 → 接",
+        "oldHtml": "<p class=\"diff-p\">无线文档体系按 <b>特性文档</b> → <b>子模块文档</b> → <b>接口/命令参考</b> 三级组织，\n覆盖 RAN10.<span class=\"del\">1</span> 系统的 gNB、传输网、运维面<span class=\"del\">三</span>大子域。</p>",
+        "newHtml": "<p class=\"diff-p\">无线文档体系按 <b>特性文档</b> → <b>子模块文档</b> → <b>接口/命令参考</b> 三级组织，\n覆盖 RAN10.<span class=\"add\">2</span> 系统的 gNB、传输网、运维面<span class=\"add\">与 <b>云网管理</b> 四</span>大子域。</p>"
+      },
+      {
+        "id": "p5",
+        "type": "table",
+        "status": "chg",
+        "level": null,
+        "title": "表 2-1 RAN10.1 平台文档存放规则\n平",
+        "oldHtml": "<table class=\"data-table\"><caption>表 2-1 RAN10.1 平台文档存放规则</caption>\n<thead><tr><th>平台</th><th>存放路径</th><th>维护责任</th></tr></thead>\n<tbody>\n<tr><td>gNB 平台</td><td class=\"cell-del\">/opt/ran10.1/gnb</td><td>无线研发</td></tr><tr><td>传输网平台</td><td class=\"cell-del\">/opt/ran10.1/tn</td><td>传输研发</td></tr><tr><td>运维面</td><td class=\"cell-del\">/opt/ran10.1/ops</td><td>运维研发</td></tr></tbody></table>",
+        "newHtml": "<table class=\"data-table\"><caption>表 2-1 RAN10.2 平台文档存放规则</caption>\n<thead><tr><th>平台</th><th>存放路径</th><th>维护责任</th></tr></thead>\n<tbody>\n<tr><td>gNB 平台</td><td class=\"cell-add\">/opt/ran10.2/gnb</td><td>无线研发</td></tr><tr><td>传输网平台</td><td class=\"cell-add\">/opt/ran10.2/tn</td><td>传输研发</td></tr><tr><td>运维面</td><td class=\"cell-add\">/opt/ran10.2/ops</td><td>运维研发</td></tr><tr><td class=\"cell-add\">云网管理</td><td class=\"cell-add\">/opt/ran10.2/cnm</td><td class=\"cell-add\">云网研发</td></tr></tbody></table>"
+      },
+      {
+        "id": "p6",
+        "type": "heading",
+        "status": "keep",
+        "level": 3,
+        "title": "版本管理与发布",
+        "contentHtml": "<h3 class=\"diff-h\">版本管理与发布</h3>"
+      },
+      {
+        "id": "p7",
+        "type": "text",
+        "status": "chg",
+        "level": null,
+        "title": "RAN10.2 文档版本通过 git tag 管",
+        "oldHtml": "<p class=\"diff-p\">RAN10.<span class=\"del\">1</span> 文档版本通过 git tag 管理，每月发布一次小版本；季度发布一次特性版本，\n每次发布同步更新产品 LAN 与组网拓扑示意图如下：</p>",
+        "newHtml": "<p class=\"diff-p\">RAN10.<span class=\"add\">2</span> 文档版本通过 git tag 管理，每月发布一次小版本；季度发布一次特性版本，\n每次发布同步更新产品 LAN 与组网拓扑示意图如下<span class=\"add\">；新增支持 <b>双上联冗余</b> 拓扑</span>：</p>"
+      },
+      {
+        "id": "p8",
+        "type": "image",
+        "status": "chg",
+        "level": null,
+        "title": "图 2-1 RAN10.1 单上联组网拓扑",
+        "oldImage": "assets/images/hedex/topo_v1.svg",
+        "newImage": "assets/images/hedex/topo_v2.svg",
+        "oldCaption": "图 2-1 RAN10.1 单上联组网拓扑",
+        "newCaption": "图 2-1 RAN10.2 双上联冗余组网拓扑",
+        "oldHash": "89f236be199e",
+        "newHash": "e259e5bb083d"
+      },
+      {
+        "id": "p9",
+        "type": "list",
+        "status": "chg",
+        "level": null,
+        "title": "常规发布周期：每月 15 日\n特性发布周期：每季",
+        "oldHtml": "<ul class=\"data-list\"><li>常规发布周期：每月 15 日</li>\n<li>特性发布周期：每季度首月发布</li>\n<li>紧急修订：通过 hotfix 分支单独发布</li></ul>",
+        "newHtml": "<ul class=\"data-list\"><li>常规发布周期：每月 15 日</li>\n<li>特性发布周期：每季度首月发布</li>\n<li>紧急修订：通过 hotfix 分支单独发布</li><span class=\"add\">\n<li>新增 <b>灰度发布</b> 渠道，支持分租户灰度验证</li></span></ul>"
+      }
     ]
   }
 };

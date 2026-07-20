@@ -75,14 +75,17 @@
 
       const label = document.createElement('span');
       label.className = 'tree-label';
+      if (node.bridge) label.classList.add('tree-bridge');
       const status = node.status || 'keep';
-      if (status && status !== 'keep') {
+      if (status && status !== 'keep' && !node.bridge) {
         label.classList.add('has-diff', 'status-' + status);
         label.dataset.badge = STATUS_BADGE[status] || '';
       }
       label.dataset.id = node.id;
       label.textContent = node.title;
-      label.addEventListener('click', () => selectChapter(node.id));
+      if (!node.bridge) {
+        label.addEventListener('click', () => selectChapter(node.id));
+      }
       li.appendChild(label);
 
       if (hasChildren) {
@@ -102,14 +105,16 @@
   }
 
   function findFirstDiffChapter(chapters) {
+    let firstNonBridge = null;
     for (const c of chapters) {
-      if (c.status && c.status !== 'keep') return c.id;
+      if (!firstNonBridge && !c.bridge && c.id) firstNonBridge = c.id;
+      if (!c.bridge && c.status && c.status !== 'keep') return c.id;
       if (c.children && c.children.length) {
         const r = findFirstDiffChapter(c.children);
         if (r) return r;
       }
     }
-    return chapters.length ? chapters[0].id : null;
+    return firstNonBridge;
   }
 
   function selectChapter(id) {
@@ -122,37 +127,39 @@
     renderChapterDiff(id, null);
   }
 
-  // 段落栏：按文档标题层级缩进的树形列表
+  // 段落栏: 按文档标题层级缩进, 仅显示 heading 段; 无 heading 则空 (右侧仍展示整章内容)
   function renderParagraphList(chapterId) {
     listEl.innerHTML = '';
     const paras = D.paragraphsByChapter && D.paragraphsByChapter[chapterId];
     if (!paras || paras.length === 0) {
       const li = document.createElement('li');
       li.className = 'list-empty';
-      li.textContent = '该章节无内容';
+      li.textContent = '该章节为目录节点, 无独立内容';
       listEl.appendChild(li);
       return;
     }
-    // 当前 heading 深度；章节树本身视为层级 1, 未遇到 heading 前用 1
+    // 仅展示 heading 段 (按其在原文档出现顺序 + level 缩进)
+    const headings = paras.filter((p) => p.type === 'heading');
+    if (headings.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'list-empty';
+      li.textContent = '此章无标题层级, 内容已直接展示在右侧';
+      listEl.appendChild(li);
+      return;
+    }
     let curHeadingLevel = 1;
     const frag = document.createDocumentFragment();
-    paras.forEach((p) => {
+    headings.forEach((p) => {
       const status = p.status || 'keep';
-      const isHeading = p.type === 'heading';
-      let indentLevel;
-      if (isHeading) {
-        curHeadingLevel = p.level || (curHeadingLevel + 1);
-        indentLevel = curHeadingLevel - 1;
-      } else {
-        indentLevel = curHeadingLevel;
-      }
+      curHeadingLevel = p.level || (curHeadingLevel + 1);
+      const indentLevel = Math.max(0, curHeadingLevel - 1);
       const li = document.createElement('li');
-      li.className = 'paragraph-item s-' + status + (isHeading ? ' is-heading' : '');
+      li.className = 'paragraph-item s-' + status + ' is-heading';
       li.dataset.id = p.id;
       li.style.paddingLeft = (indentLevel * HEADING_INDENT + BASE_INDENT) + 'px';
 
       const title = document.createElement('span');
-      title.className = 'paragraph-title' + (isHeading ? ' heading-title' : '');
+      title.className = 'paragraph-title heading-title';
       title.textContent = p.title;
       li.appendChild(title);
 

@@ -1,0 +1,27 @@
+[
+  {
+    "titleStr": "文档包信息",
+    "path": "5G RAN10.2 特性文档 > 文档包信息",
+    "html": "<html><head><meta charset=\"UTF-8\"><title>文档包信息</title></head><body>\n<p class=\"p\">\n本特性文档面向 5G RAN 网络规划与运维人员，介绍 5G RAN10.2 系统的设备组成、功能特性、\n修订历史与文档体系结构等信息，便于读者快速了解产品定位与改造范围。\n</p>\n<p class=\"p\">\n文档采用层级结构组织：<b>特性文档</b> 为顶层目录，下含 <b>文档包信息</b>、\n<b>接口与流量</b>、<b>修订历史</b> 等章节。如需了解具体子模块，可在左侧章节树点击向下展开。\n</p>\n</body></html>"
+  },
+  {
+    "titleStr": "无线文档体系",
+    "path": "5G RAN10.2 特性文档 > 文档包信息 > 无线文档体系",
+    "html": "<html><head><meta charset=\"UTF-8\"><title>无线文档体系</title></head><body>\n<h2 class=\"h2\">无线文档体系概述</h2>\n<p class=\"p\">\n本章介绍 5G RAN10.2 各功能平台文档的组成与存放规则，并说明无线文档体系的层级划分、版本管理与发布流程。\n</p>\n<h3 class=\"h3\">文档层级结构</h3>\n<p class=\"p\">\n无线文档体系按 <b>特性文档</b> → <b>子模块文档</b> → <b>接口/命令参考</b> 三级组织，\n覆盖 RAN10.2 系统的 gNB、传输网、运维面与 <b>云网管理</b> 四大子域。\n</p>\n<table class=\"tbl\">\n<caption>表 2-1 RAN10.2 平台文档存放规则</caption>\n<thead><tr><th>平台</th><th>存放路径</th><th>维护责任</th></tr></thead>\n<tbody>\n<tr><td>gNB 平台</td><td>/opt/ran10.2/gnb</td><td>无线研发</td></tr>\n<tr><td>传输网平台</td><td>/opt/ran10.2/tn</td><td>传输研发</td></tr>\n<tr><td>运维面</td><td>/opt/ran10.2/ops</td><td>运维研发</td></tr>\n<tr><td>云网管理</td><td>/opt/ran10.2/cnm</td><td>云网研发</td></tr>\n</tbody>\n</table>\n<h3 class=\"h3\">版本管理与发布</h3>\n<p class=\"p\">\nRAN10.2 文档版本通过 git tag 管理，每月发布一次小版本；季度发布一次特性版本，\n每次发布同步更新产品 LAN 与组网拓扑示意图如下；新增支持 <b>双上联冗余</b> 拓扑：\n</p>\n<div class=\"img\">\n<img src=\"${URL_PREFIX}//resources//topo_v2.svg\" alt=\"RAN10.2 组网拓扑\" />\n<div class=\"cap\">图 2-1 RAN10.2 双上联冗余组网拓扑</div>\n</div>\n<ul class=\"ul\">\n<li>常规发布周期：每月 15 日</li>\n<li>特性发布周期：每季度首月发布</li>\n<li>紧急修订：通过 hotfix 分支单独发布</li>\n<li>新增 <b>灰度发布</b> 渠道，支持分租户灰度验证</li>\n</ul>\n</body></html>"
+  },
+  {
+    "titleStr": "状态接口",
+    "path": "5G RAN10.2 特性文档 > 接口与流量 > 状态接口",
+    "html": "<html><head><meta charset=\"UTF-8\"><title>状态接口</title></head><body>\n<h2 class=\"h2\">状态接口说明</h2>\n<p class=\"p\">\n状态接口用于上报 RAN 节点运行状态，包括 CPU 利用率、内存占用、链路通断、连接数、告警聚合信息与\n<b>电源状态</b>，为运维系统提供基础监控数据来源，并支持按需推送到第三方监控平台。\n</p>\n<table class=\"tbl\">\n<caption>表 3-1 RAN10.2 状态接口字段</caption>\n<thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>\n<tbody>\n<tr><td>cpu_usage</td><td>int</td><td>CPU 利用率百分比</td></tr>\n<tr><td>mem_usage</td><td>int</td><td>内存利用率百分比</td></tr>\n<tr><td>link_status</td><td>bitset</td><td>链路状态位图</td></tr>\n<tr><td>power_state</td><td>enum</td><td>电源状态 (ON/OFF/STANDBY)</td></tr>\n</tbody>\n</table>\n</body></html>"
+  },
+  {
+    "titleStr": "VLAN 隔离特性",
+    "path": "5G RAN10.2 特性文档 > 接口与流量 > VLAN 隔离特性",
+    "html": "<html><head><meta charset=\"UTF-8\"><title>VLAN 隔离特性</title></head><body>\n<h2 class=\"h2\">VLAN 隔离特性概述</h2>\n<p class=\"p\">\n本章节为 RAN10.2 新增功能，描述 5G RAN 在用户面与控制面分离场景下 VLAN 隔离的实现方式与\n典型部署约束，避免不同业务 VLAN 间的二层数据互通。\n</p>\n<h3 class=\"h3\">典型部署约束</h3>\n<ul class=\"ul\">\n<li>同一 VLAN 内的 gNB 节点应部署在同一物理子网，避免跨网段转发</li>\n<li>不同业务 VLAN 间启用端口隔离组 (port-isolate group)</li>\n<li>多租户场景推荐使用 VLAN Mapping + VRF 实现三层隔离</li>\n</ul>\n</body></html>"
+  },
+  {
+    "titleStr": "修订历史",
+    "path": "5G RAN10.2 特性文档 > 修订历史",
+    "html": "<html><head><meta charset=\"UTF-8\"><title>修订历史</title></head><body>\n<h2 class=\"h2\">修订历史</h2>\n<table class=\"tbl\">\n<caption>修订历史表 (RAN10.2)</caption>\n<thead><tr><th>版本</th><th>发布日期</th><th>修订要点</th></tr></thead>\n<tbody>\n<tr><td>RAN10.1.0</td><td>2024-03-15</td><td>首次发布 RAN10.1 基线版本</td></tr>\n<tr><td>RAN10.1.1</td><td>2024-06-15</td><td>新增 gNB 接口与流量章节修订</td></tr>\n<tr><td>RAN10.2.0</td><td>2024-09-15</td><td>RAN10.2 基线版本：新增 VLAN 隔离与管理面状态扩展</td></tr>\n</tbody>\n</table>\n<p class=\"p\">\n后续修订历史将由 RAN10.2 维护团队维护，RAN10.1 进入冻结状态不再追加新条目。\n</p>\n</body></html>"
+  }
+]
