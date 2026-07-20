@@ -8,7 +8,7 @@ window.DIFF_DATA = {
     "name": "5G RAN 特性文档 版本对比",
     "oldVersion": "5G RAN10.1",
     "newVersion": "5G RAN10.2",
-    "generatedAt": "2026-07-20 20:42",
+    "generatedAt": "2026-07-20 21:03",
     "sourceDoc": "5G RAN 特性文档 (5G RAN10.1 → 5G RAN10.2)",
     "stats": {
       "add": 1,
@@ -81,7 +81,7 @@ window.DIFF_DATA = {
   "paragraphsByChapter": {
     "ch1-3": [
       {
-        "id": "p1",
+        "id": "ch1-3-p1",
         "type": "heading",
         "status": "keep",
         "level": 2,
@@ -89,7 +89,7 @@ window.DIFF_DATA = {
         "contentHtml": "<h2 class=\"diff-h\">修订历史</h2>"
       },
       {
-        "id": "p2",
+        "id": "ch1-3-p2",
         "type": "table",
         "status": "chg",
         "level": null,
@@ -98,7 +98,7 @@ window.DIFF_DATA = {
         "newHtml": "<table class=\"data-table\"><caption>修订历史表 (RAN10.2)</caption>\n<thead><tr><th>版本</th><th>发布日期</th><th>修订要点</th></tr></thead>\n<tbody>\n<tr><td>RAN10.1.0</td><td>2024-03-15</td><td>首次发布 RAN10.1 基线版本</td></tr><tr><td>RAN10.1.1</td><td>2024-06-15</td><td>新增 gNB 接口与流量章节修订</td></tr><tr><td class=\"cell-add\">RAN10.2.0</td><td class=\"cell-add\">2024-09-15</td><td class=\"cell-add\">RAN10.2 基线版本：新增 VLAN 隔离与管理面状态扩展</td></tr></tbody></table>"
       },
       {
-        "id": "p3",
+        "id": "ch1-3-p3",
         "type": "text",
         "status": "add",
         "level": null,
@@ -109,7 +109,7 @@ window.DIFF_DATA = {
     ],
     "ch1-2-3": [
       {
-        "id": "p1",
+        "id": "ch1-2-3-p1",
         "type": "heading",
         "status": "add",
         "level": 2,
@@ -118,7 +118,7 @@ window.DIFF_DATA = {
         "newHtml": "<h2 class=\"diff-h\">VLAN 隔离特性概述</h2>"
       },
       {
-        "id": "p2",
+        "id": "ch1-2-3-p2",
         "type": "text",
         "status": "add",
         "level": null,
@@ -127,7 +127,7 @@ window.DIFF_DATA = {
         "newHtml": "<p class=\"diff-p\">本章节为 RAN10.2 新增功能，描述 5G RAN 在用户面与控制面分离场景下 VLAN 隔离的实现方式与\n典型部署约束，避免不同业务 VLAN 间的二层数据互通。</p>"
       },
       {
-        "id": "p3",
+        "id": "ch1-2-3-p3",
         "type": "heading",
         "status": "add",
         "level": 3,
@@ -136,7 +136,7 @@ window.DIFF_DATA = {
         "newHtml": "<h3 class=\"diff-h\">典型部署约束</h3>"
       },
       {
-        "id": "p4",
+        "id": "ch1-2-3-p4",
         "type": "list",
         "status": "add",
         "level": null,
@@ -147,7 +147,7 @@ window.DIFF_DATA = {
     ],
     "ch1-2-2": [
       {
-        "id": "p1",
+        "id": "ch1-2-2-p1",
         "type": "text",
         "status": "del",
         "level": null,
@@ -156,7 +156,7 @@ window.DIFF_DATA = {
         "newHtml": "<div class=\"diff-empty\">(新版本中已删除)</div>"
       },
       {
-        "id": "p2",
+        "id": "ch1-2-2-p2",
         "type": "text",
         "status": "del",
         "level": null,
@@ -167,7 +167,7 @@ window.DIFF_DATA = {
     ],
     "ch1-2-1": [
       {
-        "id": "p1",
+        "id": "ch1-2-1-p1",
         "type": "heading",
         "status": "chg",
         "level": 2,
@@ -176,7 +176,7 @@ window.DIFF_DATA = {
         "newHtml": "<h2 class=\"diff-h\">状态接口<span class=\"add\">说明</span></h2>"
       },
       {
-        "id": "p2",
+        "id": "ch1-2-1-p2",
         "type": "text",
         "status": "chg",
         "level": null,
@@ -185,7 +185,7 @@ window.DIFF_DATA = {
         "newHtml": "<p class=\"diff-p\">状态接口用于上报 RAN 节点运行状态，包括 CPU 利用率、内存占用、链路通断、连接数<span class=\"add\">、</span>告警聚合信息<span class=\"add\">与\n<b>电源状态</b></span>，为运维系统提供基础监控数据来源<span class=\"add\">，并支持按需推送到第三方监控平台</span>。</p>"
       },
       {
-        "id": "p3",
+        "id": "ch1-2-1-p3",
         "type": "table",
         "status": "chg",
         "level": null,
@@ -196,7 +196,7 @@ window.DIFF_DATA = {
     ],
     "ch1-1": [
       {
-        "id": "p1",
+        "id": "ch1-1-p1",
         "type": "text",
         "status": "chg",
         "level": null,
@@ -205,7 +205,7 @@ window.DIFF_DATA = {
         "newHtml": "<p class=\"diff-p\">本特性文档面向 5G RAN 网络规划与运维人员，介绍 5G RAN10.<span class=\"add\">2</span> 系统的设备组成、功能特性、\n修订历史与文档体系结构等信息，便于读者快速了解产品定位与改造范围。</p>"
       },
       {
-        "id": "p2",
+        "id": "ch1-1-p2",
         "type": "text",
         "status": "keep",
         "level": null,
@@ -215,7 +215,7 @@ window.DIFF_DATA = {
     ],
     "ch1-1-1": [
       {
-        "id": "p1",
+        "id": "ch1-1-1-p1",
         "type": "heading",
         "status": "keep",
         "level": 2,
@@ -223,7 +223,7 @@ window.DIFF_DATA = {
         "contentHtml": "<h2 class=\"diff-h\">无线文档体系概述</h2>"
       },
       {
-        "id": "p2",
+        "id": "ch1-1-1-p2",
         "type": "text",
         "status": "chg",
         "level": null,
@@ -232,7 +232,7 @@ window.DIFF_DATA = {
         "newHtml": "<p class=\"diff-p\">本章介绍 5G RAN10.<span class=\"add\">2</span> 各功能平台文档的组成与存放规则，并说明无线文档体系的层级划分、版本管理与发布流程。</p>"
       },
       {
-        "id": "p3",
+        "id": "ch1-1-1-p3",
         "type": "heading",
         "status": "keep",
         "level": 3,
@@ -240,7 +240,7 @@ window.DIFF_DATA = {
         "contentHtml": "<h3 class=\"diff-h\">文档层级结构</h3>"
       },
       {
-        "id": "p4",
+        "id": "ch1-1-1-p4",
         "type": "text",
         "status": "chg",
         "level": null,
@@ -249,7 +249,7 @@ window.DIFF_DATA = {
         "newHtml": "<p class=\"diff-p\">无线文档体系按 <b>特性文档</b> → <b>子模块文档</b> → <b>接口/命令参考</b> 三级组织，\n覆盖 RAN10.<span class=\"add\">2</span> 系统的 gNB、传输网、运维面<span class=\"add\">与 <b>云网管理</b> 四</span>大子域。</p>"
       },
       {
-        "id": "p5",
+        "id": "ch1-1-1-p5",
         "type": "table",
         "status": "chg",
         "level": null,
@@ -258,7 +258,7 @@ window.DIFF_DATA = {
         "newHtml": "<table class=\"data-table\"><caption>表 2-1 RAN10.2 平台文档存放规则</caption>\n<thead><tr><th>平台</th><th>存放路径</th><th>维护责任</th></tr></thead>\n<tbody>\n<tr><td>gNB 平台</td><td class=\"cell-add\">/opt/ran10.2/gnb</td><td>无线研发</td></tr><tr><td>传输网平台</td><td class=\"cell-add\">/opt/ran10.2/tn</td><td>传输研发</td></tr><tr><td>运维面</td><td class=\"cell-add\">/opt/ran10.2/ops</td><td>运维研发</td></tr><tr><td class=\"cell-add\">云网管理</td><td class=\"cell-add\">/opt/ran10.2/cnm</td><td class=\"cell-add\">云网研发</td></tr></tbody></table>"
       },
       {
-        "id": "p6",
+        "id": "ch1-1-1-p6",
         "type": "heading",
         "status": "keep",
         "level": 3,
@@ -266,7 +266,7 @@ window.DIFF_DATA = {
         "contentHtml": "<h3 class=\"diff-h\">版本管理与发布</h3>"
       },
       {
-        "id": "p7",
+        "id": "ch1-1-1-p7",
         "type": "text",
         "status": "chg",
         "level": null,
@@ -275,7 +275,7 @@ window.DIFF_DATA = {
         "newHtml": "<p class=\"diff-p\">RAN10.<span class=\"add\">2</span> 文档版本通过 git tag 管理，每月发布一次小版本；季度发布一次特性版本，\n每次发布同步更新产品 LAN 与组网拓扑示意图如下<span class=\"add\">；新增支持 <b>双上联冗余</b> 拓扑</span>：</p>"
       },
       {
-        "id": "p8",
+        "id": "ch1-1-1-p8",
         "type": "image",
         "status": "chg",
         "level": null,
@@ -288,7 +288,7 @@ window.DIFF_DATA = {
         "newHash": "e259e5bb083d"
       },
       {
-        "id": "p9",
+        "id": "ch1-1-1-p9",
         "type": "list",
         "status": "chg",
         "level": null,

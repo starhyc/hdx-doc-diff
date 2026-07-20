@@ -93,9 +93,10 @@
         li.appendChild(subUl);
         if (!expandByDefault) subUl.style.display = 'none';
         toggle.addEventListener('click', () => {
+          // 当前是否处于 collapsed 态; 点击应翻转 -> 展开/收起互换
           const collapsed = toggle.classList.contains('collapsed');
-          toggle.classList.toggle('collapsed', collapsed);
-          toggle.classList.toggle('expanded', !collapsed);
+          toggle.classList.toggle('collapsed', !collapsed);
+          toggle.classList.toggle('expanded', collapsed);
           subUl.style.display = collapsed ? '' : 'none';
         });
       }
@@ -177,6 +178,11 @@
 
   function findChapterIdOfParagraph(pid) {
     const all = D.paragraphsByChapter || {};
+    // 优先在当前选中章节内匹配 (避免跨章节 pid 重复时误中并列章节)
+    if (currentChapterId && all[currentChapterId] &&
+        all[currentChapterId].some(p => p.id === pid)) {
+      return currentChapterId;
+    }
     for (const k in all) {
       if (all[k].some(p => p.id === pid)) return k;
     }
@@ -199,16 +205,41 @@
     renderChapterDiff(currentChapterId, pid);
   }
 
-  // 双边 diff 栏：按章节段落顺序铺开 OLD | NEW，去掉 [类型] 状态 头部
+  // 双边 diff 栏:
+//   - 未聚焦 (focusPid = null): 铺开整章段落, keep 段加 .context 弱化
+//   - 聚焦某个 heading (focusPid != null): 只显示该 heading 的子树段
+//     (即该 heading 自身 + 其后直到同级或更高层级 heading 之前的全部段落), 不做 .context 弱化
+//   - 章节无 heading 时中栏无可见项, 走默认 focusPid = null -> 整章完整展示
+  function getScopedParas(chapterId, focusPid) {
+    const paras = D.paragraphsByChapter && (D.paragraphsByChapter[chapterId] || []);
+    if (!paras.length || !focusPid) return paras;
+    let focusIdx = -1;
+    for (let i = 0; i < paras.length; i++) {
+      if (paras[i].id === focusPid) { focusIdx = i; break; }
+    }
+    if (focusIdx === -1) return paras;
+    const focus = paras[focusIdx];
+    if (focus.type !== 'heading') return [focus];
+    const out = [focus];
+    const focusLevel = focus.level || 2;
+    for (let i = focusIdx + 1; i < paras.length; i++) {
+      const p = paras[i];
+      if (p.type === 'heading' && (p.level || 99) <= focusLevel) break;
+      out.push(p);
+    }
+    return out;
+  }
+
   function renderChapterDiff(chapterId, focusPid) {
     const oldTitle = `OLD ${D.meta ? D.meta.oldVersion : ''}`;
     const newTitle = `NEW ${D.meta ? D.meta.newVersion : ''}`;
-    const paras = D.paragraphsByChapter && D.paragraphsByChapter[chapterId];
-    if (!paras || paras.length === 0) {
+    const allParas = D.paragraphsByChapter && D.paragraphsByChapter[chapterId];
+    if (!allParas || allParas.length === 0) {
       oldEl.innerHTML = `<div class="diff-pane-title">${oldTitle}</div><div class="diff-empty">该章节无内容</div>`;
       newEl.innerHTML = `<div class="diff-pane-title">${newTitle}</div><div class="diff-empty">该章节无内容</div>`;
       return;
     }
+    const paras = getScopedParas(chapterId, focusPid);
     const oldHtml = [`<div class="diff-pane-title">${oldTitle}</div>`];
     const newHtml = [`<div class="diff-pane-title">${newTitle}</div>`];
     paras.forEach((p) => {
@@ -217,7 +248,8 @@
       const isKeep = status === 'keep';
       const klass = ['diff-block', 'type-' + p.type, 'status-' + status];
       if (p.type === 'heading') klass.push('h-level-' + (p.level || 2));
-      if (isKeep && !isFocus) klass.push('context');
+      // 整章视图 (无聚焦) 把 keep 段视为上下文弱化; 聚焦子树视图则全部按主内容渲染
+      if (isKeep && !focusPid) klass.push('context');
       if (isFocus) klass.push('focused');
       oldHtml.push(`<div class="${klass.join(' ')}" data-pid="${p.id}">${renderOld(p)}</div>`);
       newHtml.push(`<div class="${klass.join(' ')}" data-pid="${p.id}">${renderNew(p)}</div>`);
@@ -226,7 +258,7 @@
     newEl.innerHTML = newHtml.join('');
     if (focusPid) {
       const fOld = oldEl.querySelector(`.diff-block[data-pid="${focusPid}"]`);
-      if (fOld) fOld.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (fOld) fOld.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
   }
 

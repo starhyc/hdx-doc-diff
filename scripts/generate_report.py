@@ -379,8 +379,11 @@ def signature(block: Block) -> str:
     return "?"
 
 
-def diff_blocks(old_blocks, new_blocks):
-    """对齐两段 block 序列, 返回最终的 paragraphs 列表 (含 status / contentHtml / oldHtml / newHtml 等)."""
+def diff_blocks(old_blocks, new_blocks, pid_prefix="ch"):
+    """对齐两段 block 序列, 返回最终的 paragraphs 列表 (含 status / contentHtml / oldHtml / newHtml 等).
+
+    pid 形如 `<chapterId>-p<seq>`, 跨章节唯一, 避免前端 findChapterIdOfParagraph 误中并列章节.
+    """
     sm = difflib.SequenceMatcher(a=[signature(b) for b in old_blocks],
                                  b=[signature(b) for b in new_blocks],
                                  autojunk=False)
@@ -389,7 +392,7 @@ def diff_blocks(old_blocks, new_blocks):
     def next_pid():
         nonlocal pid_counter
         pid_counter += 1
-        return f"p{pid_counter}"
+        return f"{pid_prefix}-p{pid_counter}"
 
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
@@ -729,21 +732,26 @@ def _node_visible(node):
 
 
 def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver):
-    """根据 old/new entry 解析并 diff 段落, 复用到 dict node.id -> [block dictionaries]."""
+    """根据 old/new entry 解析并 diff 段落, 复用到 dict node.id -> [block dictionaries].
+
+    pid 前缀用本节点 id (e.g. 'ch1-1-1'), 输出 `<cid>-p<seq>`,
+    保证跨章节唯一, 避免前端 findChapterIdOfParagraph 误中并列章节.
+    """
     old_e = node.old_entry
     new_e = node.new_entry
     if not old_e and not new_e:
         return None  # 无 entry -> 无 paragraphs
     has_old = bool(node.old_entry)
     has_new = bool(node.new_entry)
+    pid_prefix = node.id or "ch"
     if has_old and has_new:
         old_blocks = parse_blocks(old_e["html"])
         new_blocks = parse_blocks(new_e["html"])
-        paras = diff_blocks(old_blocks, new_blocks)
+        paras = diff_blocks(old_blocks, new_blocks, pid_prefix=pid_prefix)
     elif has_old:
-        paras = [_mk_del(b, f"p{i+1}") for i, b in enumerate(parse_blocks(old_e["html"]))]
+        paras = [_mk_del(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(old_e["html"]))]
     elif has_new:
-        paras = [_mk_add(b, f"p{i+1}") for i, b in enumerate(parse_blocks(new_e["html"]))]
+        paras = [_mk_add(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(new_e["html"]))]
     else:
         paras = []
 
