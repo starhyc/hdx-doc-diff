@@ -142,6 +142,18 @@ data/parse/
 - `path`：章节路径 (例如 "5G RAN10.1 特性文档 > 文档包信息"), 必须以版本前缀起头
 - `html`：整篇 `<html>...</html>` 原文, 其中引用图片走 `${URL_PREFIX}//resources//<file>`
 
+输入文件兼容多形态 (loader `_load_one_file` 用 `raw_decode` 迭代消费顶层 JSON 值, 大到几百 MB 也吃):
+- 单数组 `[{...},{...}]`
+- 单对象 `{...}` 或含 `{"chapters": [...]}`
+- 多顶层 JSON 值拼接 (含/无换行, NDJSON / JSON-stream 也行), 例如:
+  ```
+  {"titleStr":"A","path":"...","html":"..."}
+  {"titleStr":"B","path":"...","html":"..."}
+  ```
+- 文件以 BOM 开头也兼容 (用 `utf-8-sig` 解码)
+- 单点解析失败仅跳过该值, 不阻断整个文件 (从下一个 `{` 或 `[` 续解析)
+- 缺 `titleStr/path/html` 全部字段的 dict 当作 sentinel / 垃圾值丢弃
+
 生成步骤：
 1. `strip_version()` 正则 `^\s*(\d+G\s*RAN\s*\d+\.\d+(?:\.\d+)?)\s+` 把每条 `path` 头部版本段剥离, 得到跨版本归一化的 "特性文档 > 文档包信息"
 2. 按 segment 拼接路径树 (`> ` 分隔)。同一归一化路径的 OLD/NEW entries 合到同一节点；纯中间层节点 (无 entry) 标 `bridge:true`, 中/右栏渲染 "无独立内容", 不挂点击, 仅作层级占位

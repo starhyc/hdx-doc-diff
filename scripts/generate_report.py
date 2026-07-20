@@ -71,9 +71,13 @@ def split_path(stripped_path: str):
 def load_entries(arg: str):
     """加载参数 arg (文件或目录) 下所有 JSON 章节, 返回 entry 列表.
 
-    支持的 JSON 形态:
+    支持的文件形态 (大文件几百 MB 也兼容, 走 raw_decode 迭代避免一次性 EOF 拒掉 'Extra data'):
       - 单对象: 一个章节, 或对象内含 "chapters" 键
-      - 数组: 多个章节; 数组元素可为章节对象
+      - 单数组: [{...}, {...}, ...]
+      - 多个顶层 JSON 值拼接 (含/无换行, 即 JSON-stream / NDJSON):
+        {...}{...}{...} 或 {...}\\n{...}\\n...
+      - 多个数组拼接: [...]\\n[...]\\n... 或 NDJSON-style
+      - 同一文件里混杂对象 / 数组 的顶层 JSON 值
     """
     p = Path(arg)
     files = []
@@ -86,21 +90,62 @@ def load_entries(arg: str):
 
     entries = []
     for f in files:
-        try:
-            raw = json.loads(f.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as e:
-            print(f"WARN: skip {f}: {e}", file=sys.stderr); continue
-        if isinstance(raw, dict):
-            if "chapters" in raw and isinstance(raw["chapters"], list):
-                for c in raw["chapters"]:
-                    entries.append(_normalize_entry(c, f))
-            else:
-                entries.append(_normalize_entry(raw, f))
-        elif isinstance(raw, list):
-            for c in raw:
-                if isinstance(c, dict):
-                    entries.append(_normalize_entry(c, f))
+        _load_one_file(f, entries)
     return entries
+
+
+def _load_one_file(f: Path, entries: list):
+    """读取单个 JSON 文件, 用 raw_decode 迭代消费顶层 JSON 值, 兼容大文件与多值拼接."""
+    try:
+        text = f.read_text(encoding="utf-8-sig")  # utf-8-sig 同时吃 BOM
+    except UnicodeDecodeError:
+        text = f.read_text(encoding="utf-8", errors="ignore")
+    except OSError as e:
+        print(f"WARN: read {f} failed: {e}", file=sys.stderr); return
+    decoder = json.JSONDecoder()
+    idx, n = 0, len(text)
+    count = 0
+    while idx < n:
+        # 跳过空白与常见分隔字符
+        while idx < n and text[idx] in " \t\r\n,":
+            idx += 1
+        if idx >= n:
+            break
+        try:
+            value, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError as e:
+            print(f"WARN: skip {f}: JSONDecodeError at char {idx}: {e}", file=sys.stderr)
+            # 从失败位置附近往后找下一个 '{' 或 '[' 再继续, 避免一个错殂整个文件
+            nxt = min(n, idx + 1)
+            while nxt < n and text[nxt] not in "{[":
+                nxt += 1
+            idx = nxt
+            continue
+        _emit_value(value, f, entries)
+        count += 1
+        idx = end
+    if count == 0:
+        print(f"WARN: {f} 没解析到任何 JSON 值", file=sys.stderr)
+
+
+def _emit_value(value, src: Path, entries: list):
+    """把单个顶层 JSON 值展开为 entry 列表附加进去.
+    只接受含 titleStr / path / html 至少之一的 dict (避免吞掉 sentinel/garbage)."""
+    def push(item):
+        if not isinstance(item, dict):
+            return
+        if not any(k in item for k in ("titleStr", "path", "html")):
+            return  # 缺全部章节字段 -> 不是真章节, 丢弃
+        entries.append(_normalize_entry(item, src))
+    if isinstance(value, dict):
+        if "chapters" in value and isinstance(value["chapters"], list):
+            for c in value["chapters"]:
+                push(c)
+        else:
+            push(value)
+    elif isinstance(value, list):
+        for c in value:
+            push(c)
 
 
 def _normalize_entry(raw, src):

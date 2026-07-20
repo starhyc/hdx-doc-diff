@@ -8,7 +8,7 @@ window.DIFF_DATA = {
     "name": "5G RAN 特性文档 版本对比",
     "oldVersion": "5G RAN10.1",
     "newVersion": "5G RAN10.2",
-    "generatedAt": "2026-07-20 21:03",
+    "generatedAt": "2026-07-20 21:25",
     "sourceDoc": "5G RAN 特性文档 (5G RAN10.1 → 5G RAN10.2)",
     "stats": {
       "add": 1,
