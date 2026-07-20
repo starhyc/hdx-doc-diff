@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" font-family="'Microsoft YaHei',sans-serif">
+  <rect x="0" y="0" width="480" height="280" fill="#ffffff"/>
+
+  <!-- Core switch -->
+  <rect x="200" y="30" width="80" height="34" rx="4" fill="#1e293b" stroke="#0f172a"/>
+  <text x="240" y="51" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="600">S5700-核心</text>
+
+  <!-- 上联 -->
+  <rect x="200" y="0" width="80" height="20" rx="3" fill="#0284c7" stroke="#0c4a6e"/>
+  <text x="240" y="14" text-anchor="middle" fill="#fff" font-size="11">上联 R1</text>
+  <line x1="240" y1="20" x2="240" y2="30" stroke="#475569" stroke-width="2"/>
+
+  <!-- 下联 3 主机 -->
+  <line x1="240" y1="64" x2="240" y2="130" stroke="#475569" stroke-width="2"/>
+  <line x1="100" y1="130" x2="380" y2="130" stroke="#475569" stroke-width="2"/>
+  <line x1="100" y1="130" x2="100" y2="170" stroke="#475569" stroke-width="2"/>
+  <line x1="240" y1="130" x2="240" y2="170" stroke="#475569" stroke-width="2"/>
+  <line x1="380" y1="130" x2="380" y2="170" stroke="#475569" stroke-width="2"/>
+
+  <g font-size="11" text-anchor="middle">
+    <rect x="60"  y="170" width="80" height="34" rx="4" fill="#16a34a" stroke="#14532d"/>
+    <text x="100" y="191" fill="#fff">用户 A</text>
+    <rect x="200" y="170" width="80" height="34" rx="4" fill="#16a34a" stroke="#14532d"/>
+    <text x="240" y="191" fill="#fff">用户 B</text>
+    <rect x="340" y="170" width="80" height="34" rx="4" fill="#16a34a" stroke="#14532d"/>
+    <text x="380" y="191" fill="#fff">用户 C</text>
+  </g>
+
+  <!-- 标签 -->
+  <text x="240" y="240" text-anchor="middle" fill="#475569" font-size="11" font-weight="600">
+    V1.8 单上联组网，无冗余链路
+  </text>
+  <text x="240" y="258" text-anchor="middle" fill="#94a3b8" font-size="10">
+    SFP+ 10GE × 1上行 · 24GE 下行
+  </text>
+</svg>

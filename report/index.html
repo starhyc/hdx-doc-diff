@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HDX 文档版本对比报告</title>
+  <link rel="stylesheet" href="css/report.css" />
+</head>
+<body>
+  <header class="report-header">
+    <div class="report-title">
+      <h1 id="report-name">华为 S5700 产品手册 版本对比</h1>
+      <div class="versions">
+        <span class="version version-old" id="ver-old">OLD V1.8</span>
+        <span class="arrow">→</span>
+        <span class="version version-new" id="ver-new">NEW V1.9</span>
+      </div>
+    </div>
+    <div class="report-meta">
+      <span id="meta-time">生成时间: 2026-07-20 10:30</span>
+      <span id="meta-doc">源文档: S5700 产品手册.hdx</span>
+    </div>
+    <div class="stat-badges" id="stat-badges">
+      <span class="badge badge-add">新增 +24</span>
+      <span class="badge badge-del">删除 -7</span>
+      <span class="badge badge-chg">修改 *15</span>
+      <span class="badge badge-img">图片差异 3</span>
+    </div>
+  </header>
+
+  <main class="layout" id="layout">
+    <!-- ① 章节栏 -->
+    <aside class="pane pane-tree">
+      <div class="pane-header">① 章节栏</div>
+      <div class="pane-body">
+        <ul class="tree" id="chapter-tree"></ul>
+      </div>
+      <div class="splitter" data-target="--tree-width"></div>
+    </aside>
+
+    <!-- ② 段落栏 -->
+    <aside class="pane pane-list">
+      <div class="pane-header">② 段落栏</div>
+      <div class="pane-body">
+        <ul class="paragraph-list" id="paragraph-list"></ul>
+      </div>
+      <div class="splitter" data-target="--list-width"></div>
+    </aside>
+
+    <!-- ③ 双边对比栏 -->
+    <section class="pane pane-diff">
+      <div class="pane-header">③ 双边内容对比</div>
+      <div class="diff-scroll" id="diff-scroll">
+        <div class="diff-pane" id="diff-old"></div>
+        <div class="diff-divider"></div>
+        <div class="diff-pane" id="diff-new"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="report-footer">
+    <div class="legend">
+      <span class="legend-add">新增</span>
+      <span class="legend-del">删除</span>
+      <span class="legend-chg">修改</span>
+      <span class="legend-keep">无变更</span>
+    </div>
+    <div class="footer-info">HDX Doc-Diff Notifier · 自包含静态报告</div>
+  </footer>
+
+  <script src="data/diff-data.js"></script>
+  <script src="js/splitter.js"></script>
+  <script src="js/scroll-sync.js"></script>
+  <script src="js/report.js"></script>
+</body>
+</html>
