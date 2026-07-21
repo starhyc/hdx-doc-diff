@@ -463,10 +463,8 @@ def determine_tree_status(node: ChapterNode):
 
 
 def _html_equal(a: str, b: str) -> bool:
-    """忽略空白 / 属性顺序做粗略相等比较."""
-    if a == b:
-        return True
-    return re.sub(r"\s+", " ", a).strip() == re.sub(r"\s+", " ", b).strip()
+    """比较两段 HTML 的可见文本是否相同 (忽略标签/属性/空白差异)."""
+    return _text_of_html(a) == _text_of_html(b)
 
 
 # ----------------------------- 并行 worker -----------------------------
