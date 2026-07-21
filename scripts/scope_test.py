@@ -37,7 +37,16 @@ def main():
     txt = Path(data_path).read_text(encoding="utf-8")
     m = re.search(r"window\.DIFF_DATA\s*=\s*(\{.*\});", txt, re.DOTALL)
     dd = json.loads(m.group(1))
-    pbc = dd["paragraphsByChapter"]
+    data_dir = Path(data_path).parent
+    out_dir = data_dir.parent  # paragraphPaths 相对于输出目录根
+    if "paragraphPaths" in dd:
+        pbc = {}
+        for cid, rel in dd["paragraphPaths"].items():
+            fpath = out_dir / rel
+            if fpath.exists():
+                pbc[cid] = json.loads(fpath.read_text(encoding="utf-8"))
+    else:
+        pbc = dd["paragraphsByChapter"]
 
     fails = 0
     print("== 各章节自匹配 scoped 子树 ==")

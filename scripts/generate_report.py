@@ -1258,11 +1258,9 @@ def copy_report_template(out_dir: Path):
 def _write_diff_data_stream(DiffData: dict, out_path: Path):
     """流式写入 diff-data.js, 逐段序列化避免整串 JSON 在内存中.
 
-    meta 和 chapters 较小, 直接 dumps; paragraphsByChapter 逐 key 写入.
-    用简单的字符串替换校正缩进.
+    meta 和 chapters 较小直接序列化; paragraphPaths 是 chapterId -> 文件路径映射.
     """
     def _reindent(s: str, extra: int) -> str:
-        """给 JSON 字符串每行前加 extra 个空格."""
         return "\n".join(" " * extra + line if line else ""
                          for line in s.split("\n"))
 
@@ -1272,6 +1270,7 @@ def _write_diff_data_stream(DiffData: dict, out_path: Path):
             " * 本文件由 scripts/generate_report.py 自动生成, 请勿手工编辑.\n"
             " * 输入: data/parse/json/<OLD_VER> 与 <NEW_VER> 下的章节 JSON;\n"
             " * 输出: window.DIFF_DATA, 供 report/index.html 渲染.\n"
+            " * 段落数据按章节拆分在 data/paragraphs/ 下, 由前端按需加载.\n"
             " */\n"
             "window.DIFF_DATA = {\n"
         )
@@ -1283,16 +1282,25 @@ def _write_diff_data_stream(DiffData: dict, out_path: Path):
         ch_json = json.dumps(DiffData["chapters"], ensure_ascii=False, indent=2)
         f.write("  \"chapters\": " + _reindent(ch_json, 2).lstrip() + ",\n")
 
-        # paragraphsByChapter (大) -- 逐 key
-        f.write('  "paragraphsByChapter": {\n')
-        pbc = DiffData["paragraphsByChapter"]
-        keys = list(pbc.keys())
-        for i, k in enumerate(keys):
-            comma = "," if i < len(keys) - 1 else ""
-            val_json = json.dumps(pbc[k], ensure_ascii=False, indent=2)
-            f.write(f'    "{k}": ' + _reindent(val_json, 4).lstrip() + comma + "\n")
-        f.write("  }\n")
+        # paragraphPaths (chapterId -> 文件路径)
+        pp_json = json.dumps(DiffData["paragraphPaths"], ensure_ascii=False, indent=2)
+        f.write("  \"paragraphPaths\": " + _reindent(pp_json, 2).lstrip() + "\n")
         f.write("};\n")
+
+
+def _write_paragraph_files(paragraphs_by_chapter: dict, paragraphs_dir: Path):
+    """将每个章节的段落数据写入独立 JSON 文件."""
+    paragraphs_dir.mkdir(parents=True, exist_ok=True)
+    paths = {}
+    for cid, paras in paragraphs_by_chapter.items():
+        fname = f"{cid}.json"
+        fpath = paragraphs_dir / fname
+        fpath.write_text(
+            json.dumps(paras, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        paths[cid] = f"data/paragraphs/{fname}"
+    return paths
 
 
 # ----------------------------- main -----------------------------
@@ -1392,6 +1400,14 @@ def main(argv=None):
     img_count = sum(1 for ps in paragraphs_by_chapter.values() for p in ps if p.get("type") == "image")
     stats["img"] = img_count
 
+    # 拷贝报告模板到输出目录
+    copy_report_template(out_dir)
+
+    # 写段落数据为独立文件 (按章节拆分, 前端按需加载)
+    paragraphs_dir = out_dir / "data" / "paragraphs"
+    log.info("writing %d paragraph files ...", len(paragraphs_by_chapter))
+    paragraph_paths = _write_paragraph_files(paragraphs_by_chapter, paragraphs_dir)
+
     DiffData = {
         "meta": {
             "name": args.name,
@@ -1402,17 +1418,14 @@ def main(argv=None):
             "stats": stats,
         },
         "chapters": chapters,
-        "paragraphsByChapter": paragraphs_by_chapter,
+        "paragraphPaths": paragraph_paths,
     }
 
-    # 拷贝报告模板到输出目录
-    copy_report_template(out_dir)
-
-    # 写数据文件 (流式写入, 避免整串 JSON 在内存中)
+    # 写主数据文件 (meta + chapters + paragraphPaths)
     data_dir = out_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     out_path = data_dir / "diff-data.js"
-    log.info("writing diff data to %s ...", out_path)
+    log.info("writing diff data index to %s ...", out_path)
     _write_diff_data_stream(DiffData, out_path)
     t3 = time.time()
     log.info("diff data written in %.1fs", t3 - t2)

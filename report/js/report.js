@@ -1,12 +1,9 @@
 // 渲染主控：根据 window.DIFF_DATA 渲染章节树 / 段落栏 / 双边 diff
 //
 // 设计要点：
+//  - 段落数据按章节拆分存储, 首次点击章节时异步加载 (避免巨型 JS 文件撑爆浏览器)
 //  - 段落栏按文档标题层级缩进：heading 段记录 level (1=章, 2=节, 3=子节)
-//    同节中的非 heading 段落缩进至该 heading 下一级；保持文档原顺序
-//  - 段落项不显示类型徽标(标题/表格/图片/列表)，仅靠层级+样式表达；
-//    状态徽标(新增/删除/修改)当 status != keep 时显示，keep 仅淡化
-//  - 双边 diff 栏亦按章节段落顺序铺开，去掉 [类型] 状态 meta 头
-//    仅用左边框颜色 (绿/红/黄) 与淡化 (context) 表达差异
+//  - 双边 diff 栏按章节段落顺序铺开, 颜色表达差异
 //  - 选中段若跨章节自动切换章节
 (function() {
   const D = window.DIFF_DATA || {};
@@ -16,11 +13,17 @@
   const newEl = document.getElementById('diff-new');
 
   const STATUS_BADGE = { add: '新增', del: '删除', chg: '修改', skip: '跳过' };
-  const HEADING_INDENT = 14; // 像素/层级
-  const BASE_INDENT = 8;     // 基础内边距
+  const HEADING_INDENT = 14;
+  const BASE_INDENT = 8;
 
   let currentChapterId = null;
   let currentPid = null;
+  // 已加载的段落缓存: { chapterId: [paragraphs] }
+  const paragraphsCache = {};
+
+  function getChapterParagraphs(chapterId) {
+    return paragraphsCache[chapterId] || [];
+  }
 
   function init() {
     renderHeader();
@@ -118,21 +121,46 @@
     return firstNonBridge;
   }
 
-  function selectChapter(id) {
+  async function selectChapter(id) {
     currentChapterId = id;
     currentPid = null;
     treeEl.querySelectorAll('.tree-label').forEach(el =>
       el.classList.toggle('active', el.dataset.id === id)
     );
+    // 段落在初次选中时异步加载
+    await ensureParagraphsLoaded(id);
     renderParagraphList(id);
     renderChapterDiff(id, null);
+  }
+
+  async function ensureParagraphsLoaded(chapterId) {
+    if (paragraphsCache[chapterId]) return;
+    const paths = D.paragraphPaths || {};
+    const path = paths[chapterId];
+    if (!path) {
+      paragraphsCache[chapterId] = [];
+      return;
+    }
+    // 显示加载中
+    listEl.innerHTML = '<li class="list-empty">加载中...</li>';
+    oldEl.innerHTML = '<div class="diff-empty">加载中...</div>';
+    newEl.innerHTML = '<div class="diff-empty">加载中...</div>';
+    try {
+      const resp = await fetch(path);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      paragraphsCache[chapterId] = data;
+    } catch (e) {
+      console.error('Failed to load paragraphs for', chapterId, e);
+      paragraphsCache[chapterId] = [];
+    }
   }
 
   // 段落栏: 按文档标题层级缩进, 仅显示 heading 段; 无 heading 则空 (右侧仍展示整章内容)
   // skip 状态的 heading 也显示 (使用紫色虚线与特殊样式), 表示已被过滤但仍可见
   function renderParagraphList(chapterId) {
     listEl.innerHTML = '';
-    const paras = D.paragraphsByChapter && D.paragraphsByChapter[chapterId];
+    const paras = getChapterParagraphs(chapterId);
     if (!paras || paras.length === 0) {
       const li = document.createElement('li');
       li.className = 'list-empty';
@@ -178,25 +206,19 @@
   }
 
   function findChapterIdOfParagraph(pid) {
-    const all = D.paragraphsByChapter || {};
-    // 优先在当前选中章节内匹配 (避免跨章节 pid 重复时误中并列章节)
-    if (currentChapterId && all[currentChapterId] &&
-        all[currentChapterId].some(p => p.id === pid)) {
-      return currentChapterId;
-    }
-    for (const k in all) {
-      if (all[k].some(p => p.id === pid)) return k;
-    }
-    return null;
+    // pid 形如 ch1-2-1-p3, 提取章节 id 前缀
+    const m = pid.match(/^(.*)-p\d+$/);
+    return m ? m[1] : null;
   }
 
-  function selectParagraph(pid) {
+  async function selectParagraph(pid) {
     const chId = findChapterIdOfParagraph(pid);
     if (chId && chId !== currentChapterId) {
       currentChapterId = chId;
       treeEl.querySelectorAll('.tree-label').forEach(el =>
         el.classList.toggle('active', el.dataset.id === chId)
       );
+      await ensureParagraphsLoaded(chId);
       renderParagraphList(chId);
     }
     currentPid = pid;
@@ -212,7 +234,7 @@
 //     (即该 heading 自身 + 其后直到同级或更高层级 heading 之前的全部段落), 不做 .context 弱化
 //   - 章节无 heading 时中栏无可见项, 走默认 focusPid = null -> 整章完整展示
   function getScopedParas(chapterId, focusPid) {
-    const paras = D.paragraphsByChapter && (D.paragraphsByChapter[chapterId] || []);
+    const paras = getChapterParagraphs(chapterId);
     if (!paras.length || !focusPid) return paras;
     let focusIdx = -1;
     for (let i = 0; i < paras.length; i++) {
@@ -234,7 +256,7 @@
   function renderChapterDiff(chapterId, focusPid) {
     const oldTitle = `OLD ${D.meta ? D.meta.oldVersion : ''}`;
     const newTitle = `NEW ${D.meta ? D.meta.newVersion : ''}`;
-    const allParas = D.paragraphsByChapter && D.paragraphsByChapter[chapterId];
+    const allParas = getChapterParagraphs(chapterId);
     if (!allParas || allParas.length === 0) {
       oldEl.innerHTML = `<div class="diff-pane-title">${oldTitle}</div><div class="diff-empty">该章节无内容</div>`;
       newEl.innerHTML = `<div class="diff-pane-title">${newTitle}</div><div class="diff-empty">该章节无内容</div>`;

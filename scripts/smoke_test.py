@@ -3,11 +3,11 @@
 """Smoke test: 校验 generate_report.py 输出的 diff-data.js 结构完整.
 
 断言:
- 1. window.DIFF_DATA 含 meta / chapters / paragraphsByChapter
- 2. chapters 树中每个节点要么有 paragraphsByChapter[id], 要么 bridge=true
- 3. paragraphsByChapter 每个键都能在 chapters 树找到对应 id
+ 1. window.DIFF_DATA 含 meta / chapters / paragraphPaths
+ 2. chapters 树中每个节点要么有 paragraphPaths[id], 要么 bridge=true
+ 3. paragraphPaths 每个键都能在 chapters 树找到对应 id, 且对应的文件存在
  4. heading 段的 level 字段同 h2/h3/h4 对应; text/list/table/image 段的 level 为 null
- 5. status 取值仅 {keep/add/del/chg}; meta.stats 总数等于 chapters 树非 bridge 节点 count
+ 5. status 取值仅 {keep/add/del/chg/skip}; meta.stats 总数等于 chapters 树非 bridge 节点 count
 """
 import json
 import re
@@ -35,12 +35,34 @@ def main():
     import sys
     data_path = sys.argv[1] if len(sys.argv) > 1 else "report/data/diff-data.js"
     dd = load_diff_data(Path(data_path))
-    assert "meta" in dd and "chapters" in dd and "paragraphsByChapter" in dd
+    assert "meta" in dd and "chapters" in dd, "缺少 meta/chapters"
+    # 兼容新旧格式
+    has_paths = "paragraphPaths" in dd
+    has_inline = "paragraphsByChapter" in dd
+    assert has_paths or has_inline, "缺少 paragraphPaths 或 paragraphsByChapter"
     print("PASS: 顶层字段完整")
 
+    data_dir = Path(data_path).parent
+    out_dir = data_dir.parent  # paragraphPaths 相对于输出目录根
     chapter_ids, bridge_ids = set(), set()
     walk(dd["chapters"], chapter_ids, bridge_ids)
-    pbc_keys = set(dd["paragraphsByChapter"].keys())
+
+    if has_inline:
+        pbc_keys = set(dd["paragraphsByChapter"].keys())
+        # 构造统一访问接口
+        def get_paras(cid):
+            return dd["paragraphsByChapter"].get(cid, [])
+    else:
+        pp = dd["paragraphPaths"]
+        pbc_keys = set(pp.keys())
+        def get_paras(cid):
+            rel = pp.get(cid)
+            if not rel:
+                return []
+            fpath = out_dir / rel
+            if not fpath.exists():
+                return []
+            return json.loads(fpath.read_text(encoding="utf-8"))
 
     # every paragraph key must appear in tree
     missing = pbc_keys - chapter_ids
@@ -63,7 +85,10 @@ def main():
     print(f"PASS: bridge={len(bridge_ids)} 节点无 paras, leaf={len(all_ids - bridge_ids)} 节点都有 paras")
 
     valid_status = {"keep", "add", "del", "chg", "skip"}
-    for cid, paras in dd["paragraphsByChapter"].items():
+    all_paras = {}
+    for cid in pbc_keys:
+        paras = get_paras(cid)
+        all_paras[cid] = paras
         for p in paras:
             assert p.get("status") in valid_status, f"{cid}/{p.get('id')} bad status: {p.get('status')}"
             if p["type"] == "heading":
@@ -72,11 +97,9 @@ def main():
             else:
                 assert p.get("level") in (None,), \
                     f"{cid}/{p['id']} type={p['type']} carrying level={p.get('level')}"
-            # keep/skip -> 有 contentHtml (或 oldHtml/newHtml for skip)
             if p["status"] in ("keep", "skip"):
                 if p["type"] != "image":
                     if p["status"] == "skip":
-                        # skip 可能保留 oldHtml/newHtml (从原状态继承)
                         assert "contentHtml" in p or ("oldHtml" in p and "newHtml" in p), \
                             f"{cid}/{p['id']} skip缺contentHtml或old/newHtml"
                     else:
@@ -89,12 +112,11 @@ def main():
     print(f"PASS: 段落结构字段符合契约")
 
     stats = dd["meta"]["stats"]
-    # 走一遍 chapters 数 status
     actual = {"add": 0, "del": 0, "chg": 0, "skip": 0}
     def walk_stats(c):
         s = c.get("status") or "keep"
         if c.get("bridge"):
-            pass  # 不计入
+            pass
         elif s in actual:
             actual[s] += 1
         for cc in c.get("children", []):
@@ -106,16 +128,15 @@ def main():
         assert actual[k] == exp, f"stats {k} mismatch: {actual[k]} vs {exp}"
     print(f"PASS: meta.stats 与树非-bridge count 一致: {actual}")
 
-    img_n = sum(1 for ps in dd["paragraphsByChapter"].values()
-                for p in ps if p.get("type") == "image")
+    img_n = sum(1 for cid in pbc_keys for p in all_paras[cid] if p.get("type") == "image")
     assert img_n == stats.get("img", 0), f"img count mismatch {img_n} vs {stats.get('img')}"
     print(f"PASS: image count={img_n} 与 meta.stats.img 一致")
 
-    # 中栏空场景 (无 headings 的章节) 至少有 1 个 -> 覆盖用户要求 #1
-    heading_any = [k for k, ps in dd["paragraphsByChapter"].items()
-                   if any(p["type"] == "heading" for p in ps)]
-    no_heading = [k for k, ps in dd["paragraphsByChapter"].items()
-                  if not any(p["type"] == "heading" for p in ps)]
+    # 中栏空场景 (无 headings 的章节) 至少有 1 个
+    heading_any = [k for k in pbc_keys
+                   if any(p["type"] == "heading" for p in all_paras.get(k, []))]
+    no_heading = [k for k in pbc_keys
+                  if not any(p["type"] == "heading" for p in all_paras.get(k, []))]
     print(f"INFO: 含 heading 的章节 {len(heading_any)}; 无 heading 中栏空章节 {len(no_heading)} -> {no_heading}")
     assert no_heading, "测试希望至少有 1 个无 heading 章节 (演示中栏空场景)"
     print(f"PASS: 至少有一个 '无标题层级' 章节可演示")
