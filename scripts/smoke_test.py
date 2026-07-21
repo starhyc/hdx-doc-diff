@@ -106,8 +106,8 @@ def main():
             if p["status"] in ("keep", "skip"):
                 if p["type"] != "image":
                     if p["status"] == "skip":
-                        assert "contentHtml" in p or ("oldHtml" in p and "newHtml" in p), \
-                            f"{cid}/{p['id']} skip缺contentHtml或old/newHtml"
+                        # skip 段右栏不展示内容, 无需 contentHtml/oldHtml/newHtml
+                        pass
                     else:
                         assert "contentHtml" in p, f"{cid}/{p['id']} keep缺contentHtml"
             else:

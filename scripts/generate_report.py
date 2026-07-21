@@ -842,14 +842,14 @@ def _mk_keep(block, pid):
 
 
 def _mk_skip(block, pid):
-    """skip 段: 展示内容但不做新旧对比, 类似 keep."""
+    """skip 段: 不展示内容, 右栏显示'已跳过'."""
     if block.type == "image":
         return _image_para(pid, block, "skip",
                            old_img=block, new_img=block)
     return {
         "id": pid, "type": block.type, "status": "skip",
         "level": block.level if block.type == "heading" else None,
-        "title": block.title, "contentHtml": block.html,
+        "title": block.title,
     }
 
 
