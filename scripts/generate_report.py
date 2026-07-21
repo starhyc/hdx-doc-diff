@@ -779,9 +779,17 @@ def _apply_heading_filter(raw_paras, heading_filter):
 
 
 def _exact_html(a: str, b: str) -> bool:
-    a = re.sub(r"\s+", " ", a).strip()
-    b = re.sub(r"\s+", " ", b).strip()
+    a = _normalize_html(re.sub(r"\s+", " ", a).strip())
+    b = _normalize_html(re.sub(r"\s+", " ", b).strip())
     return a == b
+
+
+_URL_ATTR_RE = re.compile(r'\s+(?:href|src)="[^"]*"', re.IGNORECASE)
+
+
+def _normalize_html(s: str) -> str:
+    """移除版本相关的 URL 属性 (href/src), 避免纯链接差异导致整段标 chg."""
+    return _URL_ATTR_RE.sub("", s)
 
 
 def _mk_keep(block, pid):
@@ -870,12 +878,25 @@ def _inline_diff_html(old: str, new: str, side: str):
 
     side="old" -> 接受 old html 为骨架; 标记 delete/replace 段为 <span class="del">
     side="new" -> 接受 new html 为骨架; 标记 insert/replace 段为 <span class="add">
+
+    token 比较时先归一化 URL 属性 (href/src), 避免纯链接差异产生 <span> 包裹造成 HTML 结构错乱;
+    输出仍用原始 token, 保证链接可用.
     """
     if not old and not new:
         return ""
     a = _tokenize_html(old)
     b = _tokenize_html(new)
-    sm = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
+
+    # 归一化 tag token 中的 URL 属性, 仅用于对齐
+    def _norm_tag(t: str) -> str:
+        if t.startswith("<") and t.endswith(">"):
+            return _URL_ATTR_RE.sub("", t)
+        return t
+
+    a_norm = [_norm_tag(t) for t in a]
+    b_norm = [_norm_tag(t) for t in b]
+
+    sm = difflib.SequenceMatcher(a=a_norm, b=b_norm, autojunk=False)
     out = []
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
