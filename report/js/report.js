@@ -209,10 +209,28 @@
       return;
     }
     // 展示全部 heading, 按 level 缩进 (以最小 level 为基线)
+    // 标题的中栏状态不仅看标题本身, 还汇总其下属段落的变化:
+    //   标题自身非 keep → 用自身状态; 标题 keep 但下属有非 keep 段落 → 显示 chg
     const minLevel = Math.min(...headings.map((p) => p.level || 99));
+    const headingEffectiveStatus = {};
+    for (let i = 0; i < paras.length; i++) {
+      const p = paras[i];
+      if (p.type !== 'heading') continue;
+      const own = p.status || 'keep';
+      if (own !== 'keep') { headingEffectiveStatus[p.id] = own; continue; }
+      let hasChange = false;
+      const focusLevel = p.level || 2;
+      for (let j = i + 1; j < paras.length; j++) {
+        const sub = paras[j];
+        if (sub.type === 'heading' && (sub.level || 99) <= focusLevel) break;
+        const s = sub.status || 'keep';
+        if (s !== 'keep' && s !== 'skip') { hasChange = true; break; }
+      }
+      headingEffectiveStatus[p.id] = hasChange ? 'chg' : 'keep';
+    }
     const frag = document.createDocumentFragment();
     headings.forEach((p) => {
-      const status = p.status || 'keep';
+      const status = headingEffectiveStatus[p.id] || 'keep';
       const li = document.createElement('li');
       li.className = 'paragraph-item s-' + status + ' is-heading';
       li.dataset.id = p.id;
