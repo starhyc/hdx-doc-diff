@@ -610,19 +610,19 @@ def _walk_el(el, depth=0, max_depth=8):
         return [Block("list", html=f'<{tag} class="{cls}">{inner}</{tag}>', title=text[:24] or "列表")]
 
     if tag == "div":
-        # div 中包含 <img> -> image block
-        imgs = el.xpath('.//img')
-        if imgs:
-            return [_make_image_block(el, imgs)]
-        # div 仅含 <div class="cap"> + <img> -> 已处理; 否则考虑递归向下展平
+        # 先检查是否有文字子块 (heading/p/table/ul/ol), 避免含图片的 div 吞掉所有内容
         text_children = [c for c in el if _tag(c) in ("p", "table", "ul", "ol") or _tag(c) in HEADING_TAGS]
-        # 含多个子块 -> 展开递归; 单一段落 -> 仍作为段落块
         if text_children:
+            # 有文字子块 → 展开递归 (嵌套 img 也会被 _walk_el 递归到)
             sub = []
             for c in list(el):
                 sub.extend(_walk_el(c, depth+1, max_depth))
             return sub
-        # 单纯 div 文本兜底
+        # div 仅有图片无文字子块 → 纯图片块
+        imgs = el.xpath('.//img')
+        if imgs:
+            return [_make_image_block(el, imgs)]
+        # 纯 div 文本兜底
         if _text_of(el).strip():
             return [Block("text", html=f'<p class="diff-p">{_inner_html(el)}</p>',
                           title=_text_of(el)[:24])]
