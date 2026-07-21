@@ -342,7 +342,7 @@
 
   function renderOld(p) {
     if (p.status === 'add') return '<div class="diff-empty">(旧版本无此内容)</div>';
-    if (p.status === 'skip') return '<div class="diff-empty">(跳过)</div>';
+    if (p.status === 'skip') return '';
     if (p.status === 'keep') {
       if (p.type === 'image') return renderImage(p, p.oldImage || p.newImage, p.oldCaption || p.newCaption, p.status, p.oldHash);
       return p.contentHtml || p.oldHtml || '<div class="diff-empty">(无)</div>';
@@ -353,7 +353,7 @@
 
   function renderNew(p) {
     if (p.status === 'del') return '<div class="diff-empty">(新版本中已删除)</div>';
-    if (p.status === 'skip') return '<div class="diff-empty">(跳过)</div>';
+    if (p.status === 'skip') return '';
     if (p.status === 'keep') {
       if (p.type === 'image') return renderImage(p, p.newImage || p.oldImage, p.newCaption || p.oldCaption, p.status, p.newHash);
       return p.contentHtml || p.newHtml || '<div class="diff-empty">(无)</div>';
