@@ -510,8 +510,11 @@ class Block:
 
 
 def _tag(el) -> str:
-    """lxml 元素 tag 去掉命名空间前缀."""
-    t = el.tag
+    """lxml 元素 tag 去掉命名空间前缀; 非标准元素返回空串."""
+    try:
+        t = el.tag
+    except Exception:
+        return ""
     if isinstance(t, str):
         return t.split("}", 1)[-1].lower()
     return ""
@@ -519,13 +522,19 @@ def _tag(el) -> str:
 
 def _text_of(el) -> str:
     """元素的全部直系文本, 用于段落标题摘要与签名."""
-    parts = list(el.itertext())
-    return "".join(parts).strip()
+    try:
+        parts = list(el.itertext())
+        return "".join(parts).strip()
+    except Exception:
+        return ""
 
 
 def _serialize(el):
     """把 lxml 元素序列化为字符串 (含自身)."""
-    return etree.tostring(el, encoding="unicode", with_tail=False).strip()
+    try:
+        return etree.tostring(el, encoding="unicode", with_tail=False).strip()
+    except Exception:
+        return ""
 
 
 def parse_blocks(html_str: str):
@@ -553,6 +562,9 @@ def parse_blocks(html_str: str):
 def _walk_el(el, depth=0, max_depth=8):
     """递归把 HTML 元素映射为 Block; 仅在 multi-content (div 包含若干) 时展开."""
     if depth > max_depth:
+        return []
+    # 跳过注释和 PI 节点 (lxml HtmlComment.tag 是 callable, 不是 str)
+    if not isinstance(el.tag, str):
         return []
     tag = _tag(el)
     if tag in HEADING_TAGS:
@@ -601,7 +613,7 @@ def _walk_el(el, depth=0, max_depth=8):
     if tag == "img":
         return [_make_image_block(el, [el])]
 
-    if tag in ("br", "hr"):
+    if tag in ("br", "hr", "script", "style", "noscript", "meta", "link"):
         return []
 
     # 其他元素 -> 展开向下递归
