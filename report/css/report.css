@@ -170,13 +170,15 @@ body {
   width: 14px;
   text-align: center;
   cursor: pointer;
-  color: var(--text-soft);
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: 12px;
   user-select: none;
+  flex-shrink: 0;
+  line-height: 1.5;
 }
 .tree-toggle.empty::before { content: ''; }
-.tree-toggle.expanded::before { content: ''; }
-.tree-toggle.collapsed::before { content: ''; }
+.tree-toggle.expanded::before { content: '▿'; }
+.tree-toggle.collapsed::before { content: '▹'; }
 .tree-label {
   display: inline-flex;
   align-items: center;
