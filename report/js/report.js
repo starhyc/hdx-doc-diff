@@ -79,6 +79,7 @@
       const label = document.createElement('span');
       label.className = 'tree-label';
       if (node.bridge) label.classList.add('tree-bridge');
+      if (hasChildren) label.classList.add('has-children');
       const status = node.status || 'keep';
       if (status && status !== 'keep' && !node.bridge) {
         label.classList.add('has-diff', 'status-' + status);
@@ -175,8 +176,7 @@
     });
   }
 
-  // 段落栏: 按文档标题层级缩进, 仅显示 heading 段; 无 heading 则空 (右侧仍展示整章内容)
-  // skip 状态的 heading 也显示 (使用紫色虚线与特殊样式), 表示已被过滤但仍可见
+  // 段落栏: 仅展示顶层标题 (最小 level), 含 keep/skip 状态
   function renderParagraphList(chapterId) {
     listEl.innerHTML = '';
     const paras = getChapterParagraphs(chapterId);
@@ -187,7 +187,6 @@
       listEl.appendChild(li);
       return;
     }
-    // 仅展示 heading 段 (含 skip 状态)
     const headings = paras.filter((p) => p.type === 'heading');
     if (headings.length === 0) {
       const li = document.createElement('li');
@@ -196,16 +195,15 @@
       listEl.appendChild(li);
       return;
     }
-    let curHeadingLevel = 1;
+    // 只展示顶层标题 (最小 level)
+    const minLevel = Math.min(...headings.map((p) => p.level || 99));
+    const topHeadings = headings.filter((p) => (p.level || 99) === minLevel);
     const frag = document.createDocumentFragment();
-    headings.forEach((p) => {
+    topHeadings.forEach((p) => {
       const status = p.status || 'keep';
-      curHeadingLevel = p.level || (curHeadingLevel + 1);
-      const indentLevel = Math.max(0, curHeadingLevel - 1);
       const li = document.createElement('li');
       li.className = 'paragraph-item s-' + status + ' is-heading';
       li.dataset.id = p.id;
-      li.style.paddingLeft = (indentLevel * HEADING_INDENT + BASE_INDENT) + 'px';
 
       const title = document.createElement('span');
       title.className = 'paragraph-title heading-title';

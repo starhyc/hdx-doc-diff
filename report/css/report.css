@@ -174,25 +174,40 @@ body {
   font-size: 11px;
   user-select: none;
 }
-.tree-toggle.empty::before { content: '•'; }
-.tree-toggle.expanded::before { content: '▾'; }
-.tree-toggle.collapsed::before { content: '▸'; }
+.tree-toggle.empty::before { content: ''; }
+.tree-toggle.expanded::before { content: ''; }
+.tree-toggle.collapsed::before { content: ''; }
 .tree-label {
-  display: inline-block;
-  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px 2px 2px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 3px;
   user-select: none;
-  font-size: 13px;
+  font-size: 12px;
   transition: background 0.12s;
+  line-height: 1.5;
 }
+.tree-label::before {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  margin-right: 2px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+/* 有子节点: 文件夹图标 */
+.tree-label.has-children::before { content: '\1F4C1'; }
+/* 叶子节点: 文件图标 */
+.tree-label:not(.has-children)::before { content: '\1F4C4'; }
+/* bridge 节点覆盖为文件夹 */
+.tree-label.tree-bridge::before { content: '\1F4C1'; }
 .tree-label:hover { background: var(--hover); }
 .tree-label.active {
   background: var(--accent-soft);
   font-weight: 600;
   color: var(--accent);
 }
-/* bridge (folder-like) nodes: 仅做层级展示, 不响应点击 */
 .tree-label.tree-bridge {
   font-weight: 600;
   color: var(--text-muted);
@@ -200,10 +215,6 @@ body {
   cursor: default;
 }
 .tree-label.tree-bridge:hover { background: transparent; }
-.tree-label.tree-bridge::before {
-  content: '📁\00a0';
-  font-size: 11px;
-}
 .tree-label.has-diff::after {
   content: attr(data-badge);
   margin-left: 6px;
@@ -218,10 +229,6 @@ body {
 .tree-label.status-chg::after { background: var(--bg-chg); color: var(--c-chg); }
 /* skip 状态: 保留层级展示, 紫色虚线左边框 + 浅紫底 */
 .tree-label.status-skip::after { background: var(--bg-skip); color: var(--c-skip); }
-.tree-label.status-skip {
-  border-left: 3px dashed var(--c-skip);
-  padding-left: 5px;
-}
 
 /* ==== Paragraph list (hierarchical by heading level) ==== */
 .paragraph-list { list-style: none; padding: 0; }
@@ -244,9 +251,9 @@ body {
 .paragraph-item.is-heading { font-weight: 600; }
 .paragraph-item.is-heading .paragraph-title { font-size: 13px; color: var(--text); }
 .paragraph-item .paragraph-title { font-size: 13px; color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.paragraph-item.s-keep { opacity: 0.55; }
-.paragraph-item.s-keep.active { opacity: 1; }
-.paragraph-item.s-keep .paragraph-title { color: var(--text-soft); }
+.paragraph-item.s-keep { color: var(--text-muted); }
+.paragraph-item.s-keep.active { color: var(--accent); }
+.paragraph-item.s-keep .paragraph-title { color: var(--text-muted); }
 .paragraph-item.s-add { background: var(--bg-add-soft); }
 .paragraph-item.s-del { background: var(--bg-del-soft); }
 .paragraph-item.s-chg { background: var(--bg-chg-soft); }
