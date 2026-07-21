@@ -735,7 +735,11 @@ def diff_blocks(old_blocks, new_blocks, pid_prefix="ch", heading_filter=None):
             for k in range(pairing):
                 ob = old_blocks[i1 + k]
                 nb = new_blocks[j1 + k]
-                raw_paras.append(_mk_chg(ob, nb, next_pid()))
+                # 去空白后可能完全一致 → 降级为 keep 而非 chg
+                if _exact_html(ob.html, nb.html):
+                    raw_paras.append(_mk_keep(nb, next_pid()))
+                else:
+                    raw_paras.append(_mk_chg(ob, nb, next_pid()))
             for k in range(pairing, n_old):
                 raw_paras.append(_mk_del(old_blocks[i1 + k], next_pid()))
             for k in range(pairing, n_new):
@@ -902,65 +906,92 @@ def _inline_diff_html(old: str, new: str, side: str):
 
 # ----- table diff cell-level coloring -----
 def diff_table_html(old_t: str, new_t: str):
-    """行对齐 + unit cell level coloring; 输出含 cell-add/del/chg class 的 old/new 表 HTML."""
+    """行内容对齐 + cell 级着色; 用 SequenceMatcher 对齐行, 避免插入/删除一行导致后续全部错位."""
     try:
         old_root = lxml_html.fromstring(old_t)
         new_root = lxml_html.fromstring(new_t)
     except Exception:
         return old_t, new_t
-    # 找 tbody (或直接 rows)
+
     def rows(root):
         tb = root.find(".//tbody")
         if tb is not None:
             return [r for r in tb if _tag(r) == "tr"]
         return [r for r in root.iter() if _tag(r) == "tr"]
+
     def cell_text(tr):
         return [re.sub(r"\s+", " ", _text_of(td)).strip()
                 for td in tr if _tag(td) in ("td", "th")]
+
+    def cell_list(tr):
+        """返回行中所有 td/th 元素 (保留引用用于后续加 class)."""
+        return [c for c in tr if _tag(c) in ("td", "th")]
+
     o_rows = rows(old_root)
     n_rows = rows(new_root)
-    # 直接按序对齐 (同位置 -> 比较 cell)
-    n_max = max(len(o_rows), len(n_rows))
-    out_old_rows = []
-    out_new_rows = []
-    for k in range(n_max):
-        if k < len(o_rows) and k < len(n_rows):
-            orow = list(o_rows[k])
-            nrow = list(n_rows[k])
-            # 比较 row cell 文本 -> 标 chg
-            o_em = []; n_em = []
-            oc = len([c for c in orow if _tag(c) in ("td","th")])
-            nc = len([c for c in nrow if _tag(c) in ("td","th")])
-            jj = max(oc, nc)
-            for kk in range(jj):
-                if kk >= oc:
-                    # new 专属 cell -> cell-add
-                    e = nrow[kk]
-                    _add_cell_class(e, "cell-add")
-                    continue
-                if kk >= nc:
-                    # old 专属: cell-del (仍保留在 old)
-                    e = orow[kk]
-                    _add_cell_class(e, "cell-del")
-                    continue
-                ocell = orow[kk]; ncell = nrow[kk]
-                if cell_equal(ocell, ncell):
-                    _clear_cell_class(ocell); _clear_cell_class(ncell)
+
+    # 用 SequenceMatcher 按行内容对齐, 而非按位置
+    o_sigs = ["|".join(cell_text(r)) for r in o_rows]
+    n_sigs = ["|".join(cell_text(r)) for r in n_rows]
+    sm = difflib.SequenceMatcher(a=o_sigs, b=n_sigs, autojunk=False)
+
+    # old_row_map[i] = j (matched new row) or None (unmatched)
+    old_row_map = [None] * len(o_rows)
+    new_row_map = [None] * len(n_rows)
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                old_row_map[i1 + k] = j1 + k
+                new_row_map[j1 + k] = i1 + k
+        elif tag == "replace":
+            pairing = min(i2 - i1, j2 - j1)
+            for k in range(pairing):
+                old_row_map[i1 + k] = j1 + k
+                new_row_map[j1 + k] = i1 + k
+
+    def _compare_cells(old_row_el, new_row_el):
+        """逐 cell 比较一对行, 在相应 cell 上加 cell-del / cell-add class."""
+        o_cells = cell_list(old_row_el)
+        n_cells = cell_list(new_row_el)
+        n_max = max(len(o_cells), len(n_cells))
+        for kk in range(n_max):
+            if kk >= len(o_cells):
+                _add_cell_class(n_cells[kk], "cell-add")
+            elif kk >= len(n_cells):
+                _add_cell_class(o_cells[kk], "cell-del")
+            else:
+                if cell_equal(o_cells[kk], n_cells[kk]):
+                    _clear_cell_class(o_cells[kk])
+                    _clear_cell_class(n_cells[kk])
                 else:
-                    _add_cell_class(ocell, "cell-del")
-                    _add_cell_class(ncell, "cell-add")
-            out_old_rows.append(orow); out_new_rows.append(nrow)
-        elif k < len(o_rows):
-            # 仅 old 有
-            for c in o_rows[k]:
-                if _tag(c) in ("td","th"):
-                    _add_cell_class(c, "cell-del")
-            out_old_rows.append(list(o_rows[k]))
-        elif k < len(n_rows):
-            for c in n_rows[k]:
-                if _tag(c) in ("td","th"):
-                    _add_cell_class(c, "cell-add")
-            out_new_rows.append(list(n_rows[k]))
+                    _add_cell_class(o_cells[kk], "cell-del")
+                    _add_cell_class(n_cells[kk], "cell-add")
+
+    # 构建 old 侧输出 (保持原始行序)
+    out_old_rows = []
+    for i, orow in enumerate(o_rows):
+        row_copy = list(orow)
+        n_idx = old_row_map[i]
+        if n_idx is not None:
+            _compare_cells(orow, n_rows[n_idx])
+        else:
+            for c in cell_list(orow):
+                _add_cell_class(c, "cell-del")
+        out_old_rows.append(list(orow))  # 保留可能已修改的元素
+
+    # 构建 new 侧输出 (保持原始行序)
+    out_new_rows = []
+    for j, nrow in enumerate(n_rows):
+        row_copy = list(nrow)
+        o_idx = new_row_map[j]
+        if o_idx is not None:
+            _compare_cells(o_rows[o_idx], nrow)
+        else:
+            for c in cell_list(nrow):
+                _add_cell_class(c, "cell-add")
+        out_new_rows.append(list(nrow))
+
     out_old = _rebuild_table(old_root, out_old_rows)
     out_new = _rebuild_table(new_root, out_new_rows)
     return out_old, out_new
