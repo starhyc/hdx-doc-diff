@@ -338,6 +338,11 @@ body {
 h2.diff-h { font-size: 18px; font-weight: 600; margin: 0 0 2px; line-height: 1.5; color: var(--text); }
 h3.diff-h { font-size: 15px; font-weight: 600; margin: 0 0 2px; line-height: 1.5; color: var(--text); }
 h4.diff-h { font-size: 14px; font-weight: 600; margin: 0 0 2px; line-height: 1.5; color: var(--text); }
+
+/* Heading text color by parent status */
+.diff-block.status-add .diff-h { color: var(--c-add); }
+.diff-block.status-del .diff-h { color: var(--c-del); text-decoration: line-through; }
+.diff-block.status-skip .diff-h { color: var(--c-skip); }
 p.diff-p { margin: 4px 0; line-height: 1.7; color: var(--text); }
 
 /* Inline diff highlights */

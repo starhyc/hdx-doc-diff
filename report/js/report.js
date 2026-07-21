@@ -133,7 +133,18 @@
     // 段落在初次选中时异步加载
     await ensureParagraphsLoaded(id);
     renderParagraphList(id);
-    renderChapterDiff(id, null);
+    // 有标题层级: 不直接展示整章, 等用户点击标题再展示对应内容
+    // 无标题层级: 直接展示完整整章内容
+    const paras = getChapterParagraphs(id);
+    const hasHeadings = paras.some(p => p.type === 'heading');
+    if (hasHeadings) {
+      const oldTitle = `OLD ${D.meta ? D.meta.oldVersion : ''}`;
+      const newTitle = `NEW ${D.meta ? D.meta.newVersion : ''}`;
+      oldEl.innerHTML = `<div class="diff-pane-title">${oldTitle}</div><div class="diff-empty">请点击中间栏标题查看对应内容</div>`;
+      newEl.innerHTML = `<div class="diff-pane-title">${newTitle}</div><div class="diff-empty">请点击中间栏标题查看对应内容</div>`;
+    } else {
+      renderChapterDiff(id, null);
+    }
   }
 
   async function ensureParagraphsLoaded(chapterId) {
