@@ -575,6 +575,18 @@ def parse_blocks(html_str: str):
     return blocks
 
 
+def _has_text_descendant(el):
+    """检查元素及其后代是否包含文字承载元素 (heading/p/table/ul/ol).
+    用于 div 处理: 即使没有直接文字子块, 深层嵌套 div 中的文字/标题也不应被吞掉."""
+    for child in el.iter():
+        if not isinstance(child.tag, str):
+            continue
+        t = _tag(child)
+        if t in ("p", "table", "ul", "ol") or t in HEADING_TAGS:
+            return True
+    return False
+
+
 def _walk_el(el, depth=0, max_depth=8):
     """递归把 HTML 元素映射为 Block; 仅在 multi-content (div 包含若干) 时展开."""
     if depth > max_depth:
@@ -612,6 +624,14 @@ def _walk_el(el, depth=0, max_depth=8):
         text_children = [c for c in el if _tag(c) in ("p", "table", "ul", "ol") or _tag(c) in HEADING_TAGS]
         if text_children:
             # 有文字子块 → 展开递归 (嵌套 img 也会被 _walk_el 递归到)
+            sub = []
+            for c in list(el):
+                sub.extend(_walk_el(c, depth+1, max_depth))
+            return sub
+        # 即使没有直接文字子块, 也要检查深层后代是否包含文字元素.
+        # 例如: <div class="topicbody"><div class="section"><h3>...</h3></div></div>
+        # 如果不递归, h3 会被下面的 image fallback 或 text fallback 吞掉.
+        if _has_text_descendant(el):
             sub = []
             for c in list(el):
                 sub.extend(_walk_el(c, depth+1, max_depth))
