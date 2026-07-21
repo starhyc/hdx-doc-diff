@@ -44,6 +44,7 @@ import re
 import shutil
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from html import escape as html_escape
 from pathlib import Path
 from lxml import etree, html as lxml_html
@@ -299,7 +300,7 @@ class Filter:
         self.heading_wh_re = [self._compile(p) for p in self.heading_wh]
         self.heading_bl_re = [self._compile(p) for p in self.heading_bl]
         self.active = any([self.path_wh, self.path_bl, self.heading_wh, self.heading_bl])
-        log.info("Filter init: pathWh=%s pathBl=%s headingWh=%s headingBl=%s active=%s",
+        log.debug("Filter init: pathWh=%s pathBl=%s headingWh=%s headingBl=%s active=%s",
                  self.path_wh, self.path_bl, self.heading_wh, self.heading_bl, self.active)
 
     @staticmethod
@@ -347,7 +348,10 @@ def load_filter(path=None):
     if not isinstance(cfg, dict):
         log.error("filter cfg top-level must be object: %s", p)
         return Filter()
-    return Filter(cfg)
+    f = Filter(cfg)
+    log.info("filter loaded from %s: pathWh=%s pathBl=%s headingWh=%s headingBl=%s",
+             p, f.path_wh, f.path_bl, f.heading_wh, f.heading_bl)
+    return f
 
 
 # ----------------------------- 章节树构建 -----------------------------
@@ -445,6 +449,51 @@ def _html_equal(a: str, b: str) -> bool:
     if a == b:
         return True
     return re.sub(r"\s+", " ", a).strip() == re.sub(r"\s+", " ", b).strip()
+
+
+# ----------------------------- 并行 worker -----------------------------
+
+def _worker_parse_chapter(args):
+    """Worker: 纯 CPU 的段落解析 + diff, 返回 (node_id, paras). 用于多进程并行."""
+    node_id, old_html, new_html, has_old, has_new, pid_prefix, filter_cfg = args
+    heading_filter = Filter(filter_cfg) if filter_cfg else None
+    if has_old and has_new:
+        old_blocks = parse_blocks(old_html)
+        new_blocks = parse_blocks(new_html)
+        paras = diff_blocks(old_blocks, new_blocks, pid_prefix=pid_prefix, heading_filter=heading_filter)
+    elif has_old:
+        paras = [_mk_del(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(old_html))]
+    elif has_new:
+        paras = [_mk_add(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(new_html))]
+    else:
+        paras = []
+    return (node_id, paras)
+
+
+def _filter_to_cfg(filter_obj):
+    """提取 Filter 的原始配置 dict, 供 worker 进程重建."""
+    if filter_obj is None:
+        return None
+    return {
+        "pathWhitelist": filter_obj.path_wh,
+        "pathBlacklist": filter_obj.path_bl,
+        "headingWhitelist": filter_obj.heading_wh,
+        "headingBlacklist": filter_obj.heading_bl,
+    }
+
+
+def _resolve_images_in_paras(paras, resolver):
+    """处理图片 url 替换 + 计算 old/new hash (需文件 I/O, 串行执行)."""
+    for p in paras:
+        if p.get("type") == "image":
+            old = p.get("oldImage"); new = p.get("newImage")
+            if old:
+                p["oldImage"] = resolver.resolve_src(old)
+                h = resolver.sha1_of(old); p["oldHash"] = h or p["oldHash"] or ""
+            if new:
+                p["newImage"] = resolver.resolve_src(new)
+                h = resolver.sha1_of(new); p["newHash"] = h or p["newHash"] or ""
+    return paras
 
 
 # ----------------------------- 解析 HTML 段落块 -----------------------------
@@ -1037,33 +1086,101 @@ def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver, heading_
     return paras
 
 
-def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None):
+def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None, workers=1):
+    """收集所有叶子章节的段落 diff.
+
+    流程:
+      1. 遍历树收集任务列表 (提取 html, 释放 entry 内存)
+      2. 并行 (workers>1) 或串行 CPU 解析 + diff
+      3. 串行处理图片资源 (文件 I/O)
+    """
+    # 阶段 1: 收集任务, 同时释放 entry html
+    log.info("  gathering chapter tasks ...")
+    tasks, node_refs = _gather_chapter_tasks(root)
+    total = len(tasks)
+    log.info("  %d leaf chapters to process", total)
+
+    # 提取 filter 配置供 worker 重建
+    filter_cfg = _filter_to_cfg(filter_obj) if (filter_obj and filter_obj.active) else None
+
     out = {}
-    # 先统计叶子节点总数用于进度日志
-    total_leaves = _count_leaves(root)
-    done = 0
-    log_interval = max(total_leaves // 10, 1)  # 每 10% 报告一次
-    next_log = log_interval
     t_start = time.time()
+    done = 0
+    log_interval = max(total // 10, 1)
+    next_report_count = log_interval
+    next_report_time = time.time() + 30
+
+    if workers > 1 and total > 1:
+        log.info("  using %d parallel workers ...", workers)
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_worker_parse_chapter, (*t, filter_cfg)): t[0]
+                for t in tasks
+            }
+            for future in as_completed(futures):
+                node_id, paras = future.result()
+                if paras is not None:
+                    out[node_id] = paras
+                done += 1
+                now = time.time()
+                if done >= next_report_count or now >= next_report_time:
+                    pct = done * 100 // max(total, 1)
+                    elapsed = now - t_start
+                    rate = done / elapsed if elapsed > 0 else 0
+                    eta = (total - done) / rate if rate > 0 else 0
+                    log.info("  paragraphs: %d/%d (%d%%) done in %.1fs, %.0f ch/s, ETA %.0fs",
+                             done, total, pct, elapsed, rate, eta)
+                    next_report_count = done + log_interval
+                    next_report_time = now + 30
+    else:
+        # 串行路径 (原有行为)
+        for task in tasks:
+            node_id, paras = _worker_parse_chapter((*task, filter_cfg))
+            if paras is not None:
+                out[node_id] = paras
+            done += 1
+            now = time.time()
+            if done >= next_report_count or now >= next_report_time:
+                pct = done * 100 // max(total, 1)
+                elapsed = now - t_start
+                rate = done / elapsed if elapsed > 0 else 0
+                eta = (total - done) / rate if rate > 0 else 0
+                log.info("  paragraphs: %d/%d (%d%%) done in %.1fs, %.0f ch/s, ETA %.0fs",
+                         done, total, pct, elapsed, rate, eta)
+                next_report_count = done + log_interval
+                next_report_time = now + 30
+
+    # 阶段 3: 串行处理图片资源 (文件复制不能多进程并发)
+    if any(p.get("type") == "image" for ps in out.values() for p in ps):
+        log.info("  resolving image resources ...")
+        for paras in out.values():
+            _resolve_images_in_paras(paras, resolver)
+    return out
+
+
+def _gather_chapter_tasks(root: ChapterNode):
+    """遍历树, 收集所有叶子章节的解析任务, 同时释放 entry html."""
+    tasks = []
+    node_refs = {}
     stack = [root]
     while stack:
         n = stack.pop()
         if n.id:
-            ps = collect_paragraphs(n, resolver, heading_filter=filter_obj)
-            if ps is not None:
-                out[n.id] = ps
-            done += 1
-            if done >= next_log:
-                pct = done * 100 // max(total_leaves, 1)
-                elapsed = time.time() - t_start
-                rate = done / elapsed if elapsed > 0 else 0
-                eta = (total_leaves - done) / rate if rate > 0 else 0
-                log.info("  paragraphs: %d/%d (%d%%) done in %.1fs, %.0f ch/s, ETA %.0fs",
-                         done, total_leaves, pct, elapsed, rate, eta)
-                next_log = done + log_interval
+            old_e = n.old_entry
+            new_e = n.new_entry
+            if old_e or new_e:
+                old_html = old_e["html"] if old_e else ""
+                new_html = new_e["html"] if new_e else ""
+                has_old = bool(old_e)
+                has_new = bool(new_e)
+                pid_prefix = n.id or "ch"
+                tasks.append((n.id, old_html, new_html, has_old, has_new, pid_prefix))
+                node_refs[n.id] = n
+            # 释放 entry html (数据已提取到 tasks)
+            _free_entry_html(n)
         for c in n.children:
             stack.append(c)
-    return out
+    return tasks, node_refs
 
 
 def _count_leaves(root: ChapterNode) -> int:
@@ -1077,6 +1194,14 @@ def _count_leaves(root: ChapterNode) -> int:
         for c in n.children:
             stack.append(c)
     return cnt
+
+
+def _free_entry_html(node: ChapterNode):
+    """释放章节节点上 entry 中的 html 字段, 减少内存占用 (段落已提取)."""
+    for attr in ("entry", "old_entry", "new_entry"):
+        e = getattr(node, attr, None)
+        if e is not None and isinstance(e, dict) and "html" in e:
+            e["html"] = ""
 
 
 def calc_stats(root: ChapterNode):
@@ -1118,6 +1243,46 @@ def copy_report_template(out_dir: Path):
     log.info("report template copied to %s", out_dir)
 
 
+def _write_diff_data_stream(DiffData: dict, out_path: Path):
+    """流式写入 diff-data.js, 逐段序列化避免整串 JSON 在内存中.
+
+    meta 和 chapters 较小, 直接 dumps; paragraphsByChapter 逐 key 写入.
+    用简单的字符串替换校正缩进.
+    """
+    def _reindent(s: str, extra: int) -> str:
+        """给 JSON 字符串每行前加 extra 个空格."""
+        return "\n".join(" " * extra + line if line else ""
+                         for line in s.split("\n"))
+
+    with out_path.open("w", encoding="utf-8") as f:
+        f.write(
+            "/**\n"
+            " * 本文件由 scripts/generate_report.py 自动生成, 请勿手工编辑.\n"
+            " * 输入: data/parse/json/<OLD_VER> 与 <NEW_VER> 下的章节 JSON;\n"
+            " * 输出: window.DIFF_DATA, 供 report/index.html 渲染.\n"
+            " */\n"
+            "window.DIFF_DATA = {\n"
+        )
+        # meta (小)
+        meta_json = json.dumps(DiffData["meta"], ensure_ascii=False, indent=2)
+        f.write("  \"meta\": " + _reindent(meta_json, 2).lstrip() + ",\n")
+
+        # chapters (小)
+        ch_json = json.dumps(DiffData["chapters"], ensure_ascii=False, indent=2)
+        f.write("  \"chapters\": " + _reindent(ch_json, 2).lstrip() + ",\n")
+
+        # paragraphsByChapter (大) -- 逐 key
+        f.write('  "paragraphsByChapter": {\n')
+        pbc = DiffData["paragraphsByChapter"]
+        keys = list(pbc.keys())
+        for i, k in enumerate(keys):
+            comma = "," if i < len(keys) - 1 else ""
+            val_json = json.dumps(pbc[k], ensure_ascii=False, indent=2)
+            f.write(f'    "{k}": ' + _reindent(val_json, 4).lstrip() + comma + "\n")
+        f.write("  }\n")
+        f.write("};\n")
+
+
 # ----------------------------- main -----------------------------
 
 def main(argv=None):
@@ -1132,6 +1297,8 @@ def main(argv=None):
                    help="过滤配置 JSON (path/heading 黑/白名单)")
     p.add_argument("--log-level", default="INFO",
                    help="日志级别: DEBUG / INFO / WARN (默认 INFO)")
+    p.add_argument("--workers", default=1, type=int,
+                   help="并行 worker 数 (默认 1=串行, 0=CPU 核数, N>1=N 进程)")
     p.add_argument("--name", default="5G RAN 特性文档 版本对比",
                    help="报告中显示的标题")
     p.add_argument("--old-version", default=None,
@@ -1181,6 +1348,9 @@ def main(argv=None):
     t0 = time.time()
     log.info("building chapter tree from %d old + %d new entries ...", len(old), len(new))
     root = build_tree(old, new)
+    # 释放 entry 列表引用 (树节点已持有需要的 entry, 列表不再需要)
+    old.clear(); new.clear()
+    del old, new
     assign_ids(root)
     determine_tree_status(root)
     t1 = time.time()
@@ -1195,9 +1365,15 @@ def main(argv=None):
     assets_dir = out_dir / "assets" / "images" / "hedex"
     resolver = AssetImageResolver(hedex_dir, assets_dir)
 
+    # 确定 workers 数量
+    n_workers = args.workers
+    if n_workers == 0:
+        n_workers = os.cpu_count() or 4
+
     chapters = [render_tree(c) for c in root.children if _node_visible(c)]
     log.info("collecting paragraphs & diff for %d visible chapters ...", len(chapters))
-    paragraphs_by_chapter = collect_all_paragraphs(root, resolver, filter_obj=filter_obj)
+    paragraphs_by_chapter = collect_all_paragraphs(root, resolver, filter_obj=filter_obj,
+                                                    workers=n_workers)
     t2 = time.time()
     log.info("paragraphs collected in %.1fs (%d leaf chapters)", t2 - t1, len(paragraphs_by_chapter))
     stats = calc_stats(root)
@@ -1220,23 +1396,14 @@ def main(argv=None):
     # 拷贝报告模板到输出目录
     copy_report_template(out_dir)
 
-    # 写数据文件
+    # 写数据文件 (流式写入, 避免整串 JSON 在内存中)
     data_dir = out_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     out_path = data_dir / "diff-data.js"
-    log.info("serializing diff data to JSON ...")
-    body = json.dumps(DiffData, ensure_ascii=False, indent=2)
+    log.info("writing diff data to %s ...", out_path)
+    _write_diff_data_stream(DiffData, out_path)
     t3 = time.time()
-    log.info("JSON serialized in %.1fs, writing to %s ...", t3 - t2, out_path)
-    out_path.write_text(
-        "/**\n"
-        " * 本文件由 scripts/generate_report.py 自动生成, 请勿手工编辑.\n"
-        " * 输入: data/parse/json/<OLD_VER> 与 <NEW_VER> 下的章节 JSON;\n"
-        " * 输出: window.DIFF_DATA, 供 report/index.html 渲染.\n"
-        " */\n"
-        "window.DIFF_DATA = " + body + ";\n",
-        encoding="utf-8"
-    )
+    log.info("diff data written in %.1fs", t3 - t2)
     t4 = time.time()
     log.info("report written in %.1fs total", t4 - t0)
     print(f"OK: report generated in {out_dir}")
