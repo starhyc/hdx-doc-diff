@@ -798,7 +798,7 @@ def _exact_html(a: str, b: str) -> bool:
     return False
 
 
-_URL_ATTR_RE = re.compile(r'\s+(?:href|src|id|name|class|data-[a-zA-Z0-9_-]+)="[^"]*"', re.IGNORECASE)
+_URL_ATTR_RE = re.compile(r'\s+(?:href|src|id|name|class|width|data-[a-zA-Z0-9_-]+)="[^"]*"', re.IGNORECASE)
 
 
 def _normalize_html(s: str) -> str:
