@@ -815,11 +815,14 @@ def _mk_keep(block, pid):
 def _mk_del(block, pid):
     if block.type == "image":
         return _image_para(pid, None, "del", old_img=block)
+    old_html = block.html
+    if block.type == "heading":
+        old_html = _heading_add_status_class(old_html, "del")
     return {
         "id": pid, "type": block.type, "status": "del",
         "level": block.level if block.type == "heading" else None,
         "title": block.title,
-        "oldHtml": block.html,
+        "oldHtml": old_html,
         "newHtml": '<div class="diff-empty">(新版本中已删除)</div>',
     }
 
@@ -827,13 +830,21 @@ def _mk_del(block, pid):
 def _mk_add(block, pid):
     if block.type == "image":
         return _image_para(pid, None, "add", new_img=block)
+    new_html = block.html
+    if block.type == "heading":
+        new_html = _heading_add_status_class(new_html, "add")
     return {
         "id": pid, "type": block.type, "status": "add",
         "level": block.level if block.type == "heading" else None,
         "title": block.title,
         "oldHtml": '<div class="diff-empty">(旧版本无此内容)</div>',
-        "newHtml": block.html,
+        "newHtml": new_html,
     }
+
+
+def _heading_add_status_class(html_str, cls):
+    """给标题 HTML 的 diff-h class 后追加状态 class (add/del/chg)."""
+    return re.sub(r'class="diff-h"', f'class="diff-h {cls}"', html_str, count=1)
 
 
 def _mk_chg(old_block, new_block, pid):
