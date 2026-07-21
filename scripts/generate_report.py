@@ -298,12 +298,14 @@ class Filter:
       "pathWhitelist":      [],          # 为空 = 不启用白名单
       "pathBlacklist":      ["*接口与流量*"],
       "headingWhitelist":   [],
-      "headingBlacklist":   ["*修订历史*", "{{第*节:*}}"]
+      "headingBlacklist":   ["*修订历史*", "{{第*节:*}}"],
+      "maxHeadingLevel":    0            # 0=展示全部标题层级; N>0=仅展示 h1~hN
     }
 
     命中黑名单 (或白名单存在但未命中) 的层级 -> status=skip:
       - 章节跳过对比, 但章节树仍展示该路径 (左侧)
       - heading 跳过对比, 中栏与右栏仍展示该 heading 与其后段落 (按 keep 风格)
+    maxHeadingLevel 控制中栏展示的标题层级数, 0 表示不限制.
     全部为空时, Filter 不生效 (等价于不禁用任何层级).
     """
     def __init__(self, cfg=None):
@@ -312,14 +314,15 @@ class Filter:
         self.path_bl = cfg.get("pathBlacklist", []) or []
         self.heading_wh = cfg.get("headingWhitelist", []) or []
         self.heading_bl = cfg.get("headingBlacklist", []) or []
+        self.max_heading_level = cfg.get("maxHeadingLevel", 0) or 0  # 0=展示全部标题层级
         # 编译为 fnmatch translate 正则
         self.path_wh_re = [self._compile(p) for p in self.path_wh]
         self.path_bl_re = [self._compile(p) for p in self.path_bl]
         self.heading_wh_re = [self._compile(p) for p in self.heading_wh]
         self.heading_bl_re = [self._compile(p) for p in self.heading_bl]
         self.active = any([self.path_wh, self.path_bl, self.heading_wh, self.heading_bl])
-        log.debug("Filter init: pathWh=%s pathBl=%s headingWh=%s headingBl=%s active=%s",
-                 self.path_wh, self.path_bl, self.heading_wh, self.heading_bl, self.active)
+        log.debug("Filter init: pathWh=%s pathBl=%s headingWh=%s headingBl=%s maxHeadingLevel=%s active=%s",
+                 self.path_wh, self.path_bl, self.heading_wh, self.heading_bl, self.max_heading_level, self.active)
 
     @staticmethod
     def _compile(pat):
@@ -1549,6 +1552,7 @@ def main(argv=None):
             "generatedAt": _now_str(),
             "sourceDoc": f"5G RAN 特性文档 ({old_ver} → {new_ver})",
             "stats": stats,
+            "maxHeadingLevel": filter_obj.max_heading_level,
         },
         "chapters": chapters,
         "paragraphPaths": paragraph_paths,
