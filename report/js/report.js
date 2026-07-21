@@ -28,7 +28,8 @@
   function init() {
     renderHeader();
     if (treeEl) {
-      treeEl.appendChild(renderTree(D.chapters || [], true));
+      // 默认全部收缩, 点击展开
+      treeEl.appendChild(renderTree(D.chapters || [], false));
       const first = findFirstDiffChapter(D.chapters || []);
       if (first) selectChapter(first);
     }
@@ -93,7 +94,7 @@
       li.appendChild(label);
 
       if (hasChildren) {
-        const subUl = renderTree(node.children, true);
+        const subUl = renderTree(node.children, false);
         li.appendChild(subUl);
         if (!expandByDefault) subUl.style.display = 'none';
         toggle.addEventListener('click', () => {
