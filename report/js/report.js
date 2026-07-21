@@ -189,7 +189,7 @@
     });
   }
 
-  // 段落栏: 仅展示顶层标题 (最小 level), 含 keep/skip 状态
+  // 段落栏: 展示全部标题 (按 level 缩进), 含 keep/skip 状态
   function renderParagraphList(chapterId) {
     listEl.innerHTML = '';
     const paras = getChapterParagraphs(chapterId);
@@ -208,15 +208,17 @@
       listEl.appendChild(li);
       return;
     }
-    // 只展示顶层标题 (最小 level)
+    // 展示全部 heading, 按 level 缩进 (以最小 level 为基线)
     const minLevel = Math.min(...headings.map((p) => p.level || 99));
-    const topHeadings = headings.filter((p) => (p.level || 99) === minLevel);
     const frag = document.createDocumentFragment();
-    topHeadings.forEach((p) => {
+    headings.forEach((p) => {
       const status = p.status || 'keep';
       const li = document.createElement('li');
       li.className = 'paragraph-item s-' + status + ' is-heading';
       li.dataset.id = p.id;
+      const depth = (p.level || minLevel) - minLevel;
+      li.style.paddingLeft = (BASE_INDENT + depth * HEADING_INDENT) + 'px';
+      if (depth > 0) li.style.fontSize = Math.max(11, 13 - depth) + 'px';
 
       const title = document.createElement('span');
       title.className = 'paragraph-title heading-title';
