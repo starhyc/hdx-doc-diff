@@ -237,16 +237,22 @@ def _load_one_file(f: Path, entries: list):
 
 def _emit_value(value, src: Path, entries: list):
     """把单个顶层 JSON 值展开为 entry 列表附加进去.
-    只接受含 titleStr / path / html 至少之一的 dict (避免吞掉 sentinel/garbage)."""
+    只接受含 titleStr / path / html 至少之一的 dict (避免吞掉 sentinel/garbage).
+    html 字段必须以 <html 开头, 否则视为非文档片段 (如递归/导航节点) 并丢弃."""
     pushed = 0
     sentinel_dropped = 0
+    html_dropped = 0
     def push(item):
-        nonlocal pushed, sentinel_dropped
+        nonlocal pushed, sentinel_dropped, html_dropped
         if not isinstance(item, dict):
             return
         if not any(k in item for k in ("titleStr", "path", "html")):
             sentinel_dropped += 1
-            return  # 缺全部章节字段 -> 不是真章节, 丢弃
+            return
+        # 丢弃 html 不是完整文档的条目 (如 <div></div> 递归片段)
+        if not _is_valid_html(item.get("html", "")):
+            html_dropped += 1
+            return
         entries.append(_normalize_entry(item, src))
         pushed += 1
     if isinstance(value, dict):
@@ -258,8 +264,20 @@ def _emit_value(value, src: Path, entries: list):
     elif isinstance(value, list):
         for c in value:
             push(c)
-    if log.isEnabledFor(logging.DEBUG) and sentinel_dropped:
-        log.debug("  dropped %d sentinel/garbage dict(s) in %s", sentinel_dropped, src)
+    if log.isEnabledFor(logging.DEBUG):
+        if sentinel_dropped:
+            log.debug("  dropped %d sentinel/garbage dict(s) in %s", sentinel_dropped, src)
+        if html_dropped:
+            log.debug("  dropped %d non-document html fragment(s) in %s", html_dropped, src)
+    if html_dropped:
+        log.info("  filtered %d non-document html entries in %s", html_dropped, src)
+
+
+def _is_valid_html(html_str: str) -> bool:
+    """html 字段必须以 <html 开头 (大小写不敏感), 筛选掉递归/导航等非文档片段."""
+    if not html_str or not html_str.strip():
+        return False
+    return html_str.strip().lower().startswith("<html")
 
 
 def _normalize_entry(raw, src):
