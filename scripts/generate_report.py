@@ -779,9 +779,23 @@ def _apply_heading_filter(raw_paras, heading_filter):
 
 
 def _exact_html(a: str, b: str) -> bool:
-    a = _normalize_html(re.sub(r"\s+", " ", a).strip())
-    b = _normalize_html(re.sub(r"\s+", " ", b).strip())
-    return a == b
+    a_norm = _normalize_html(re.sub(r"\s+", " ", a).strip())
+    b_norm = _normalize_html(re.sub(r"\s+", " ", b).strip())
+    if a_norm == b_norm:
+        return True
+    # DEBUG 时打印差异位置, 帮助定位未被归一化的残留属性
+    if log.isEnabledFor(logging.DEBUG):
+        # 找到第一个不同字符的位置
+        for i, (ca, cb) in enumerate(zip(a_norm, b_norm)):
+            if ca != cb:
+                ctx_a = a_norm[max(0, i - 40):i + 40]
+                ctx_b = b_norm[max(0, i - 40):i + 40]
+                log.debug("_exact_html mismatch at pos %d:\n  old> ...%s...\n  new> ...%s...", i, ctx_a, ctx_b)
+                break
+        else:
+            # 长度不同 (短串是长串前缀)
+            log.debug("_exact_html len mismatch: old=%d new=%d", len(a_norm), len(b_norm))
+    return False
 
 
 _URL_ATTR_RE = re.compile(r'\s+(?:href|src|id|name|class|data-[a-zA-Z0-9_-]+)="[^"]*"', re.IGNORECASE)
