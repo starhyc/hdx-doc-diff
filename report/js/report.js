@@ -69,18 +69,15 @@
       li.className = 'tree-node';
       const hasChildren = node.children && node.children.length;
       const childHasDiff = hasChildren && node.children.some(hasTreeDiff);
-      const expandByDefault = expandDiffByDefault && childHasDiff;
-
-      const toggle = document.createElement('span');
-      toggle.className = hasChildren
-        ? (expandByDefault ? 'tree-toggle expanded' : 'tree-toggle collapsed')
-        : 'tree-toggle empty';
-      li.appendChild(toggle);
+      const initiallyExpanded = expandDiffByDefault && childHasDiff;
 
       const label = document.createElement('span');
       label.className = 'tree-label';
       if (node.bridge) label.classList.add('tree-bridge');
-      if (hasChildren) label.classList.add('has-children');
+      if (hasChildren) {
+        label.classList.add('has-children');
+        label.classList.add(initiallyExpanded ? 'expanded' : 'collapsed');
+      }
       const status = node.status || 'keep';
       if (status && status !== 'keep' && !node.bridge) {
         label.classList.add('has-diff', 'status-' + status);
@@ -88,23 +85,26 @@
       }
       label.dataset.id = node.id;
       label.textContent = node.title;
-      if (!node.bridge) {
-        label.addEventListener('click', () => selectChapter(node.id));
-      }
-      li.appendChild(label);
 
+      let subUl = null;
       if (hasChildren) {
-        const subUl = renderTree(node.children, false);
+        subUl = renderTree(node.children, false);
         li.appendChild(subUl);
-        if (!expandByDefault) subUl.style.display = 'none';
-        toggle.addEventListener('click', () => {
-          // 当前是否处于 collapsed 态; 点击应翻转 -> 展开/收起互换
-          const collapsed = toggle.classList.contains('collapsed');
-          toggle.classList.toggle('collapsed', !collapsed);
-          toggle.classList.toggle('expanded', collapsed);
-          subUl.style.display = collapsed ? '' : 'none';
-        });
+        if (!initiallyExpanded) subUl.style.display = 'none';
       }
+
+      // 整个 label 可点击: 有子节点=展开/折叠, 叶子节点=选中章节
+      label.addEventListener('click', () => {
+        if (hasChildren) {
+          const collapsed = label.classList.contains('collapsed');
+          label.classList.toggle('collapsed', !collapsed);
+          label.classList.toggle('expanded', collapsed);
+          if (subUl) subUl.style.display = collapsed ? '' : 'none';
+        } else if (!node.bridge) {
+          selectChapter(node.id);
+        }
+      });
+      li.appendChild(label);
       ul.appendChild(li);
     });
     return ul;

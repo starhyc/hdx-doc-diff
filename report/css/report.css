@@ -164,21 +164,8 @@ body {
 .tree, .tree ul { list-style: none; padding-left: 0; }
 .tree ul { padding-left: 16px; }
 .tree > ul { padding-left: 0; }
-.tree-node { margin: 1px 0; }
-.tree-toggle {
-  display: inline-block;
-  width: 14px;
-  text-align: center;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 12px;
-  user-select: none;
-  flex-shrink: 0;
-  line-height: 1.5;
-}
-.tree-toggle.empty::before { content: ''; }
-.tree-toggle.expanded::before { content: '▿'; }
-.tree-toggle.collapsed::before { content: '▹'; }
+.tree ul { padding-left: 12px; }
+.tree-node { margin: 0; }
 .tree-label {
   display: inline-flex;
   align-items: center;
@@ -198,11 +185,12 @@ body {
   font-size: 11px;
   flex-shrink: 0;
 }
-/* 有子节点: 文件夹图标 */
-.tree-label.has-children::before { content: '\1F4C1'; }
 /* 叶子节点: 文件图标 */
 .tree-label:not(.has-children)::before { content: '\1F4C4'; }
-/* bridge 节点覆盖为文件夹 */
+/* 展开态: 打开文件夹 */
+.tree-label.expanded::before { content: '\1F4C2'; }
+/* 折叠态 + bridge: 关闭文件夹 */
+.tree-label.collapsed::before { content: '\1F4C1'; }
 .tree-label.tree-bridge::before { content: '\1F4C1'; }
 .tree-label:hover { background: var(--hover); }
 .tree-label.active {
