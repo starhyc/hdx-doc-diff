@@ -471,8 +471,14 @@ def _html_equal(a: str, b: str) -> bool:
 
 def _worker_parse_chapter(args):
     """Worker: 纯 CPU 的段落解析 + diff, 返回 (node_id, paras). 用于多进程并行."""
-    node_id, old_html, new_html, has_old, has_new, pid_prefix, filter_cfg = args
+    node_id, old_html, new_html, has_old, has_new, pid_prefix, node_status, filter_cfg = args
     heading_filter = Filter(filter_cfg) if filter_cfg else None
+    # path 过滤命中 → 全部段落标记为 skip, 不运行 diff
+    if node_status == "skip":
+        source_html = new_html if has_new else old_html
+        blocks = parse_blocks(source_html)
+        paras = [_mk_skip(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(blocks)]
+        return (node_id, paras)
     if has_old and has_new:
         old_blocks = parse_blocks(old_html)
         new_blocks = parse_blocks(new_html)
@@ -778,17 +784,20 @@ def _apply_heading_filter(raw_paras, heading_filter):
     skip_level = None
     for p in raw_paras:
         if p.get("type") == "heading":
-            should_skip = heading_filter.should_skip_heading(p.get("title", ""))
-            if should_skip:
-                in_skip_scope = True
-                skip_level = p.get("level")
-            else:
+            lvl = p.get("level")
+            # headingBlacklist 只对 level-1 标题生效
+            if lvl == 1:
+                should_skip = heading_filter.should_skip_heading(p.get("title", ""))
+                if should_skip:
+                    in_skip_scope = True
+                    skip_level = lvl
+                else:
+                    in_skip_scope = False
+                    skip_level = None
+            elif in_skip_scope and skip_level is not None and lvl is not None and lvl <= skip_level:
+                # 遇到同级或上级标题, 退出 skip 作用域
                 in_skip_scope = False
                 skip_level = None
-        else:
-            # 非 heading 段落: 检查是否遇到同级或上级 heading 退出了 skip scope
-            # (已在 heading 分支中处理)
-            pass
         if in_skip_scope:
             p = dict(p)
             p["status"] = "skip"
@@ -827,6 +836,18 @@ def _mk_keep(block, pid):
                            old_img=block, new_img=block)
     return {
         "id": pid, "type": block.type, "status": "keep",
+        "level": block.level if block.type == "heading" else None,
+        "title": block.title, "contentHtml": block.html,
+    }
+
+
+def _mk_skip(block, pid):
+    """skip 段: 展示内容但不做新旧对比, 类似 keep."""
+    if block.type == "image":
+        return _image_para(pid, block, "skip",
+                           old_img=block, new_img=block)
+    return {
+        "id": pid, "type": block.type, "status": "skip",
         "level": block.level if block.type == "heading" else None,
         "title": block.title, "contentHtml": block.html,
     }
@@ -1295,7 +1316,8 @@ def _gather_chapter_tasks(root: ChapterNode):
                 has_old = bool(old_e)
                 has_new = bool(new_e)
                 pid_prefix = n.id or "ch"
-                tasks.append((n.id, old_html, new_html, has_old, has_new, pid_prefix))
+                node_status = n.status
+                tasks.append((n.id, old_html, new_html, has_old, has_new, pid_prefix, node_status))
                 node_refs[n.id] = n
             # 释放 entry html (数据已提取到 tasks)
             _free_entry_html(n)
@@ -1549,16 +1571,20 @@ def main(argv=None):
 
 def _apply_path_filter(root: ChapterNode, filter_obj: Filter):
     """遍历章节树, 对 path 命中过滤的节点及其子树设置 status=skip."""
-    stack = [root]
+    stack = [(root, False)]
     while stack:
-        node = stack.pop()
+        node, inherit_skip = stack.pop()
         if node.id and not getattr(node, "bridge", False):
-            full_path = _rebuild_path(node)
-            if filter_obj.should_skip_path(full_path):
+            if inherit_skip:
                 node.status = "skip"
-                log.debug("path filter skip: %s", full_path)
+            else:
+                full_path = _rebuild_path(node)
+                if filter_obj.should_skip_path(full_path):
+                    node.status = "skip"
+                    inherit_skip = True
+                    log.debug("path filter skip: %s", full_path)
         for c in node.children:
-            stack.append(c)
+            stack.append((c, inherit_skip))
 
 
 def _rebuild_path(node: ChapterNode):
