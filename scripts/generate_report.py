@@ -798,7 +798,21 @@ def _exact_html(a: str, b: str) -> bool:
     return False
 
 
-_URL_ATTR_RE = re.compile(r'\s+(?:href|src|id|name|class|width|data-[a-zA-Z0-9_-]+)="[^"]*"', re.IGNORECASE)
+# 需要被归一化的属性:
+#   - 链接/资源: href, src
+#   - 自动生成 ID: id, name, headers
+#   - 文档系统标记: class, data-*
+#   - 布局相关 (自动计算, 版本间浮点差异无意义):
+#       width, height, align, valign, border,
+#       cellpadding, cellspacing, bgcolor, nowrap, style
+_URL_ATTR_RE = re.compile(
+    r'\s+(?:href|src|id|name|class|headers'
+    r'|width|height|align|valign|border'
+    r'|cellpadding|cellspacing|bgcolor|nowrap'
+    r'|style'
+    r'|data-[a-zA-Z0-9_-]+'
+    r')="[^"]*"',
+    re.IGNORECASE)
 
 
 def _normalize_html(s: str) -> str:
