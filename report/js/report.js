@@ -89,7 +89,6 @@
       let subUl = null;
       if (hasChildren) {
         subUl = renderTree(node.children, false);
-        li.appendChild(subUl);
         if (!initiallyExpanded) subUl.style.display = 'none';
       }
 
@@ -100,11 +99,13 @@
           label.classList.toggle('collapsed', !collapsed);
           label.classList.toggle('expanded', collapsed);
           if (subUl) subUl.style.display = collapsed ? '' : 'none';
-        } else if (!node.bridge) {
+        } else if (!node.bridge && node.id) {
           selectChapter(node.id);
         }
       });
+      // 先挂 label (父标题), 再挂 subUl (子节点), 保证展开方向向下
       li.appendChild(label);
+      if (subUl) li.appendChild(subUl);
       ul.appendChild(li);
     });
     return ul;
