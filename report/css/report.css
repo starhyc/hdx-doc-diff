@@ -244,9 +244,9 @@ body {
 .paragraph-item.s-keep { color: var(--text-muted); }
 .paragraph-item.s-keep.active { color: var(--accent); }
 .paragraph-item.s-keep .paragraph-title { color: var(--text-muted); }
-.paragraph-item.s-add { background: var(--bg-add-soft); }
-.paragraph-item.s-del { background: var(--bg-del-soft); }
-.paragraph-item.s-chg { background: var(--bg-chg-soft); }
+.paragraph-item.s-add { background: var(--bg-add-soft); border-left: 3px solid var(--c-add); }
+.paragraph-item.s-del { background: var(--bg-del-soft); border-left: 3px solid var(--c-del); }
+.paragraph-item.s-chg { background: var(--bg-chg-soft); border-left: 3px solid var(--c-chg); }
 .paragraph-item.s-skip { background: var(--bg-skip-soft); border-left: 3px dashed var(--c-skip); }
 .paragraph-item.s-add .paragraph-title { color: var(--c-add); }
 .paragraph-item.s-del .paragraph-title { color: var(--c-del); }
