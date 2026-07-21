@@ -1039,6 +1039,12 @@ def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver, heading_
 
 def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None):
     out = {}
+    # 先统计叶子节点总数用于进度日志
+    total_leaves = _count_leaves(root)
+    done = 0
+    log_interval = max(total_leaves // 10, 1)  # 每 10% 报告一次
+    next_log = log_interval
+    t_start = time.time()
     stack = [root]
     while stack:
         n = stack.pop()
@@ -1046,9 +1052,31 @@ def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None):
             ps = collect_paragraphs(n, resolver, heading_filter=filter_obj)
             if ps is not None:
                 out[n.id] = ps
+            done += 1
+            if done >= next_log:
+                pct = done * 100 // max(total_leaves, 1)
+                elapsed = time.time() - t_start
+                rate = done / elapsed if elapsed > 0 else 0
+                eta = (total_leaves - done) / rate if rate > 0 else 0
+                log.info("  paragraphs: %d/%d (%d%%) done in %.1fs, %.0f ch/s, ETA %.0fs",
+                         done, total_leaves, pct, elapsed, rate, eta)
+                next_log = done + log_interval
         for c in n.children:
             stack.append(c)
     return out
+
+
+def _count_leaves(root: ChapterNode) -> int:
+    """统计树中带 id 的非 bridge 节点数."""
+    cnt = 0
+    stack = [root]
+    while stack:
+        n = stack.pop()
+        if n.id:
+            cnt += 1
+        for c in n.children:
+            stack.append(c)
+    return cnt
 
 
 def calc_stats(root: ChapterNode):
@@ -1150,9 +1178,13 @@ def main(argv=None):
     new_ver = args.new_version or sniff_version(new, "NEW")
 
     # 构建树 + 状态
+    t0 = time.time()
+    log.info("building chapter tree from %d old + %d new entries ...", len(old), len(new))
     root = build_tree(old, new)
     assign_ids(root)
     determine_tree_status(root)
+    t1 = time.time()
+    log.info("chapter tree built in %.1fs", t1 - t0)
 
     # 应用 path filter: 将命中节点标记为 skip
     if filter_obj.active:
@@ -1164,7 +1196,10 @@ def main(argv=None):
     resolver = AssetImageResolver(hedex_dir, assets_dir)
 
     chapters = [render_tree(c) for c in root.children if _node_visible(c)]
+    log.info("collecting paragraphs & diff for %d visible chapters ...", len(chapters))
     paragraphs_by_chapter = collect_all_paragraphs(root, resolver, filter_obj=filter_obj)
+    t2 = time.time()
+    log.info("paragraphs collected in %.1fs (%d leaf chapters)", t2 - t1, len(paragraphs_by_chapter))
     stats = calc_stats(root)
     img_count = sum(1 for ps in paragraphs_by_chapter.values() for p in ps if p.get("type") == "image")
     stats["img"] = img_count
@@ -1189,7 +1224,10 @@ def main(argv=None):
     data_dir = out_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     out_path = data_dir / "diff-data.js"
+    log.info("serializing diff data to JSON ...")
     body = json.dumps(DiffData, ensure_ascii=False, indent=2)
+    t3 = time.time()
+    log.info("JSON serialized in %.1fs, writing to %s ...", t3 - t2, out_path)
     out_path.write_text(
         "/**\n"
         " * 本文件由 scripts/generate_report.py 自动生成, 请勿手工编辑.\n"
@@ -1199,10 +1237,8 @@ def main(argv=None):
         "window.DIFF_DATA = " + body + ";\n",
         encoding="utf-8"
     )
-    log.info("report written to %s", out_dir)
-    log.info("  chapters: %d", len(chapters))
-    log.info("  paragraphsByChapter keys: %d", len(paragraphs_by_chapter))
-    log.info("  stats: %s", stats)
+    t4 = time.time()
+    log.info("report written in %.1fs total", t4 - t0)
     print(f"OK: report generated in {out_dir}")
     print(f"    Open {out_dir / 'index.html'} in a browser to view.")
     return 0
