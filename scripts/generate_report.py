@@ -45,7 +45,7 @@ import shutil
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from html import escape as html_escape
+from html import escape as html_escape, unescape as html_unescape
 from pathlib import Path
 from lxml import etree, html as lxml_html
 
@@ -779,45 +779,27 @@ def _apply_heading_filter(raw_paras, heading_filter):
 
 
 def _exact_html(a: str, b: str) -> bool:
-    a_norm = _normalize_html(re.sub(r"\s+", " ", a).strip())
-    b_norm = _normalize_html(re.sub(r"\s+", " ", b).strip())
-    if a_norm == b_norm:
-        return True
-    # DEBUG 时打印差异位置, 帮助定位未被归一化的残留属性
-    if log.isEnabledFor(logging.DEBUG):
-        # 找到第一个不同字符的位置
-        for i, (ca, cb) in enumerate(zip(a_norm, b_norm)):
-            if ca != cb:
-                ctx_a = a_norm[max(0, i - 40):i + 40]
-                ctx_b = b_norm[max(0, i - 40):i + 40]
-                log.debug("_exact_html mismatch at pos %d:\n  old> ...%s...\n  new> ...%s...", i, ctx_a, ctx_b)
-                break
-        else:
-            # 长度不同 (短串是长串前缀)
-            log.debug("_exact_html len mismatch: old=%d new=%d", len(a_norm), len(b_norm))
-    return False
+    """比较两段 HTML 的可见文本是否相同 (忽略所有标签/属性差异)."""
+    return _text_of_html(a) == _text_of_html(b)
 
 
-# 需要被归一化的属性:
-#   - 链接/资源: href, src
-#   - 自动生成 ID: id, name, headers
-#   - 文档系统标记: class, data-*
-#   - 布局相关 (自动计算, 版本间浮点差异无意义):
-#       width, height, align, valign, border,
-#       cellpadding, cellspacing, bgcolor, nowrap, style
-_URL_ATTR_RE = re.compile(
-    r'\s+(?:href|src|id|name|class|headers'
-    r'|width|height|align|valign|border'
-    r'|cellpadding|cellspacing|bgcolor|nowrap'
-    r'|style'
-    r'|data-[a-zA-Z0-9_-]+'
-    r')="[^"]*"',
-    re.IGNORECASE)
+def _text_of_html(html: str) -> str:
+    """从 HTML 提取纯文本: 去标签 → 解实体 → 归一化空白. 用于内容等价判断."""
+    # 去除 HTML 注释
+    text = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL)
+    # 去除 <style>/<script> 内容
+    text = re.sub(r'<(style|script)\b[^>]*>.*?</\1>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # 去除所有标签
+    text = re.sub(r'<[^>]+>', '', text)
+    # 解码 HTML 实体 (&amp; → &, &#160; → 空格 等)
+    text = html_unescape(text)
+    # 归一化空白
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 
-def _normalize_html(s: str) -> str:
-    """移除版本相关的 URL 属性 (href/src), 避免纯链接差异导致整段标 chg."""
-    return _URL_ATTR_RE.sub("", s)
+# 行内 diff 用: 归一化 tag token 中的属性, 避免属性差异产生高亮噪点
+_TAG_STRIP_RE = re.compile(r'\s[^>]*')
 
 
 def _mk_keep(block, pid):
@@ -915,10 +897,10 @@ def _inline_diff_html(old: str, new: str, side: str):
     a = _tokenize_html(old)
     b = _tokenize_html(new)
 
-    # 归一化 tag token 中的 URL 属性, 仅用于对齐
+    # 归一化 tag token: 去除所有属性, 仅保留标签名 (属性差异不产生高亮噪点)
     def _norm_tag(t: str) -> str:
-        if t.startswith("<") and t.endswith(">"):
-            return _URL_ATTR_RE.sub("", t)
+        if t.startswith("<") and not t.startswith("</"):
+            return _TAG_STRIP_RE.sub("", t, count=1)
         return t
 
     a_norm = [_norm_tag(t) for t in a]
