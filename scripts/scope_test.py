@@ -44,7 +44,13 @@ def main():
         for cid, rel in dd["paragraphPaths"].items():
             fpath = out_dir / rel
             if fpath.exists():
-                pbc[cid] = json.loads(fpath.read_text(encoding="utf-8"))
+                txt = fpath.read_text(encoding="utf-8")
+                # .js 格式: window.DIFF_PARAGRAPHS["<id>"] = <json>;
+                m2 = re.search(r'window\.DIFF_PARAGRAPHS\["([^"]+)"\]\s*=\s*(.*);', txt, re.DOTALL)
+                if m2:
+                    pbc[cid] = json.loads(m2.group(2))
+                else:
+                    pbc[cid] = json.loads(txt)
     else:
         pbc = dd["paragraphsByChapter"]
 

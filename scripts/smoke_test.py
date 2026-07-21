@@ -62,7 +62,13 @@ def main():
             fpath = out_dir / rel
             if not fpath.exists():
                 return []
-            return json.loads(fpath.read_text(encoding="utf-8"))
+            txt = fpath.read_text(encoding="utf-8")
+            # .js 格式: window.DIFF_PARAGRAPHS["<id>"] = <json>;
+            m = re.search(r'window\.DIFF_PARAGRAPHS\["([^"]+)"\]\s*=\s*(.*);', txt, re.DOTALL)
+            if m:
+                return json.loads(m.group(2))
+            # 兼容旧 .json 格式
+            return json.loads(txt)
 
     # every paragraph key must appear in tree
     missing = pbc_keys - chapter_ids

@@ -135,6 +135,12 @@
 
   async function ensureParagraphsLoaded(chapterId) {
     if (paragraphsCache[chapterId]) return;
+    // 检查是否已通过全局变量预加载
+    const globalCache = window.DIFF_PARAGRAPHS || {};
+    if (globalCache[chapterId]) {
+      paragraphsCache[chapterId] = globalCache[chapterId];
+      return;
+    }
     const paths = D.paragraphPaths || {};
     const path = paths[chapterId];
     if (!path) {
@@ -145,15 +151,28 @@
     listEl.innerHTML = '<li class="list-empty">加载中...</li>';
     oldEl.innerHTML = '<div class="diff-empty">加载中...</div>';
     newEl.innerHTML = '<div class="diff-empty">加载中...</div>';
+    // 用 <script> 标签注入加载 JS 文件 (兼容 file:// 协议, 绕过 CORS)
     try {
-      const resp = await fetch(path);
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const data = await resp.json();
-      paragraphsCache[chapterId] = data;
+      await loadScript(path);
+      if (globalCache[chapterId]) {
+        paragraphsCache[chapterId] = globalCache[chapterId];
+      } else {
+        paragraphsCache[chapterId] = [];
+      }
     } catch (e) {
       console.error('Failed to load paragraphs for', chapterId, e);
       paragraphsCache[chapterId] = [];
     }
+  }
+
+  function loadScript(src) {
+    return new Promise(function(resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function() { reject(new Error('script load failed: ' + src)); };
+      document.head.appendChild(s);
+    });
   }
 
   // 段落栏: 按文档标题层级缩进, 仅显示 heading 段; 无 heading 则空 (右侧仍展示整章内容)

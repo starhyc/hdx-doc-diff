@@ -1289,14 +1289,16 @@ def _write_diff_data_stream(DiffData: dict, out_path: Path):
 
 
 def _write_paragraph_files(paragraphs_by_chapter: dict, paragraphs_dir: Path):
-    """将每个章节的段落数据写入独立 JSON 文件."""
+    """将每个章节的段落数据写入独立 JS 文件 (script 标签注入方式, 兼容 file:// 协议)."""
     paragraphs_dir.mkdir(parents=True, exist_ok=True)
     paths = {}
     for cid, paras in paragraphs_by_chapter.items():
-        fname = f"{cid}.json"
+        fname = f"{cid}.js"
         fpath = paragraphs_dir / fname
+        body = json.dumps(paras, ensure_ascii=False, indent=2)
         fpath.write_text(
-            json.dumps(paras, ensure_ascii=False, indent=2),
+            f"window.DIFF_PARAGRAPHS=window.DIFF_PARAGRAPHS||{{}};"
+            f"window.DIFF_PARAGRAPHS[\"{cid}\"]={body};\n",
             encoding="utf-8"
         )
         paths[cid] = f"data/paragraphs/{fname}"
