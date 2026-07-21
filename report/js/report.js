@@ -246,7 +246,8 @@
       title.textContent = p.title;
       li.appendChild(title);
 
-      if (status !== 'keep') {
+      // skip 与 keep 一致, 不显示 badge
+      if (status !== 'keep' && status !== 'skip') {
         const s = document.createElement('span');
         s.className = 'paragraph-status s-' + status;
         s.textContent = STATUS_BADGE[status] || '';
@@ -341,7 +342,7 @@
 
   function renderOld(p) {
     if (p.status === 'add') return '<div class="diff-empty">(旧版本无此内容)</div>';
-    if (p.status === 'skip') return '<div class="diff-empty">(已跳过)</div>';
+    if (p.status === 'skip') return '<div class="diff-empty">(跳过)</div>';
     if (p.status === 'keep') {
       if (p.type === 'image') return renderImage(p, p.oldImage || p.newImage, p.oldCaption || p.newCaption, p.status, p.oldHash);
       return p.contentHtml || p.oldHtml || '<div class="diff-empty">(无)</div>';
@@ -352,7 +353,7 @@
 
   function renderNew(p) {
     if (p.status === 'del') return '<div class="diff-empty">(新版本中已删除)</div>';
-    if (p.status === 'skip') return '<div class="diff-empty">(已跳过)</div>';
+    if (p.status === 'skip') return '<div class="diff-empty">(跳过)</div>';
     if (p.status === 'keep') {
       if (p.type === 'image') return renderImage(p, p.newImage || p.oldImage, p.newCaption || p.oldCaption, p.status, p.newHash);
       return p.contentHtml || p.newHtml || '<div class="diff-empty">(无)</div>';
@@ -366,7 +367,7 @@
     return `<div class="image-block"><img src="${src || ''}" alt="${caption || ''}" /><div class="image-caption">${caption || ''}</div><div class="image-tag-row"><span class="image-status s-${status}">${tag}</span>${hash ? `<span class="image-hash">sha1: ${hash}</span>` : ''}</div></div>`;
   }
   function imageStatusLabel(s) {
-    return { add: '新增', del: '删除', chg: '已变更', keep: '未变更', skip: '已跳过' }[s] || '未变更';
+    return { add: '新增', del: '删除', chg: '已变更', keep: '未变更', skip: '跳过' }[s] || '未变更';
   }
 
   if (document.readyState === 'loading') {
