@@ -1,0 +1,6 @@
+{
+  "pathWhitelist": [],
+  "pathBlacklist": [],
+  "headingWhitelist": [],
+  "headingBlacklist": ["*概述*"]
+}

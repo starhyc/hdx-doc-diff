@@ -8,34 +8,75 @@
   --new DIR|FILE     新版本数据, 同上。
   --hedex DIR        解压后的 hedex 资源目录, html 内 "${URL_PREFIX}//resources//xxx"
                      引用都从这里解析。
-  --out  FILE        报告数据输出路径 (默认 report/data/diff-data.js)。
-  --assets DIR       报告图片资源输出目录 (默认 report/assets/images/hedex)。
+  --out-dir DIR      报告输出目录 (默认 output/); 模板(report/)+数据+图片都拷进去。
+  --filter FILE      过滤配置 JSON (path/heading 黑/白名单; 命中的层级仅展示不对比)。
+  --log-level LVL    DEBUG / INFO / WARN (默认 INFO)。
+  --name STR         报告显示标题。
+  --old-version STR  强制指定 OLD 版本标签 (默认从 path 嗅探)。
+  --new-version STR  同上。
 
 输出:
-  report/data/diff-data.js  ->  window.DIFF_DATA = { meta, chapters, paragraphsByChapter };
-  并把图片资源复制到 report/assets/images/hedex/。
+  <out-dir>/
+    index.html                              # 从 report/ 拷贝
+    css/  js/                                # 从 report/ 拷贝 (模板本身不动)
+    data/diff-data.js                        # window.DIFF_DATA = {meta, chapters, paragraphsByChapter};
+    assets/images/hedex/                     # 解析引用拷贝过来的资源
 
 数据处理流程:
   1. 载入 OLD / NEW 章节; 用 strip_version() 过滤 path 中的版本前缀
      (例如 "5G RAN10.1 特性文档 > 文档包信息" -> "特性文档 > 文档包信息")
   2. 按 path 的 ">" 层级构建章节树 (chunks 不带版本前缀, 跨版本归一化对齐)
-  3. 对每个章节按 old/new 是否存在, 决定 status (add/del/keep/chg)
+  3. 对每个章节按 old/new 是否存在与 Filter 命中, 决定 status (add/del/keep/chg/skip)
   4. 解析每个章节 html 提取段落块 (heading/text/table/list/image)
-  5. 对 old/new 都存在的章节做 para-级差对齐并产生 oldHtml/newHtml 高亮内容
-  6. 把图片引用拷贝到 report 资源目录, 替换为相对路径
-  7. 串行化为 DiffData 并写入输出文件
+  5. 对 old/new 都存在、未 skip 的章节做 para-级差对齐并产生 oldHtml/newHtml 高亮内容
+  6. 把图片引用拷贝到输出目录, 缺失资源仅 WARN 不阻断, 前端用占位文案渲染
+  7. 串行化为 DiffData 并写入输出目录
 """
 import argparse
+import datetime
 import difflib
+import fnmatch
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
 import sys
+import time
 from html import escape as html_escape
 from pathlib import Path
 from lxml import etree, html as lxml_html
+
+# ----------------------------- 日志 -----------------------------
+
+log = logging.getLogger("generate_report")
+
+
+def setup_logging(level):
+    """配置根 logger, console 输出到 stderr."""
+    if isinstance(level, str):
+        lvl = getattr(logging, level.upper(), logging.INFO)
+    else:
+        lvl = level
+    logging.basicConfig(
+        level=lvl,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stderr,
+    )
+
+
+def _human_size(nbytes: int) -> str:
+    """字节数转为可读字符串."""
+    if nbytes < 1024:
+        return f"{nbytes} B"
+    for unit in ("KB", "MB", "GB", "TB"):
+        nbytes /= 1024.0
+        if nbytes < 1024:
+            return f"{nbytes:.1f} {unit}"
+    return f"{nbytes:.1f} PB"
+
 
 # ----------------------------- 常量 -----------------------------
 
@@ -44,6 +85,9 @@ VERSION_RE = re.compile(r"^\s*(\d+G\s*RAN\s*\d+\.\d+(?:\.\d+)?)\s+", re.IGNORECA
 
 # ${URL_PREFIX}//resources//abc.svg
 URL_PREFIX_RE = re.compile(r"\$\{URL_PREFIX\}\/\/resources\/\/([^\"'\s>]+)")
+
+# 新增 skip 状态: 与 keep/add/del/chg 同级, 表示 Filter 跳过差异 (仅展示内容)
+SKIP_STATUS = "skip"
 
 DIFF_BLOCK_TYPES = ("heading", "text", "table", "list", "image")
 
@@ -78,65 +122,132 @@ def load_entries(arg: str):
         {...}{...}{...} 或 {...}\\n{...}\\n...
       - 多个数组拼接: [...]\\n[...]\\n... 或 NDJSON-style
       - 同一文件里混杂对象 / 数组 的顶层 JSON 值
+
+    路径不存在或无权访问时不会抛异常, 而是 WARN 并返回空列表.
     """
     p = Path(arg)
     files = []
+    if not p.exists():
+        log.warning("input path does not exist: %s", arg)
+        return []
     if p.is_dir():
         files = sorted(p.rglob("*.json"))
+        if not files:
+            log.warning("no .json files found under: %s", arg)
+            return []
     elif p.is_file():
         files = [p]
     else:
-        raise FileNotFoundError(f"input not found: {arg}")
+        log.warning("input is neither file nor directory: %s", arg)
+        return []
 
     entries = []
     for f in files:
-        _load_one_file(f, entries)
+        try:
+            _load_one_file(f, entries)
+        except PermissionError as e:
+            log.warning("permission denied reading %s: %s", f, e)
+        except OSError as e:
+            log.warning("read error for %s: %s", f, e)
     return entries
 
 
 def _load_one_file(f: Path, entries: list):
-    """读取单个 JSON 文件, 用 raw_decode 迭代消费顶层 JSON 值, 兼容大文件与多值拼接."""
+    """读取单个 JSON 文件, 用 raw_decode 迭代消费顶层 JSON 值, 兼容大文件与多值拼接.
+
+    增强调试日志:
+      - 文件大小 (可读格式)
+      - 读取耗时
+      - 解析进度百分比 (大文件 > 1 MB 时每解析 5% 字节位置打印一次)
+      - 总耗时与跳过错误数
+    """
+    t_start = time.time()
     try:
-        text = f.read_text(encoding="utf-8-sig")  # utf-8-sig 同时吃 BOM
+        fsize = f.stat().st_size if f.exists() else 0
+    except OSError:
+        fsize = 0
+    log.info("loading %s (%s)", f, _human_size(fsize) if fsize else "unknown size")
+    try:
+        text = f.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
-        text = f.read_text(encoding="utf-8", errors="ignore")
+        log.warning("decode utf-8-sig failed for %s, fallback to utf-8 ignore", f)
+        try:
+            text = f.read_text(encoding="utf-8", errors="ignore")
+        except OSError as e:
+            log.warning("read %s failed (fallback): %s", f, e); return 0
     except OSError as e:
-        print(f"WARN: read {f} failed: {e}", file=sys.stderr); return
+        log.warning("read %s failed: %s", f, e); return 0
+    t_read = time.time()
     decoder = json.JSONDecoder()
     idx, n = 0, len(text)
     count = 0
+    skipped_count = 0
+    max_block_dbg = 50
+    # 大文件 (> 1 MB) 额外按字节百分比打印进度
+    large_file = n > 1_048_576
+    pct_step = max(n // 20, 1)  # 每 5%
+    next_pct_mark = pct_step if large_file else n + 1
     while idx < n:
         # 跳过空白与常见分隔字符
         while idx < n and text[idx] in " \t\r\n,":
             idx += 1
         if idx >= n:
             break
+        # 进度百分比日志 (大文件)
+        if large_file and idx >= next_pct_mark:
+            pct = idx * 100 // n
+            elapsed = time.time() - t_read
+            rate = idx / elapsed / 1024 / 1024 if elapsed > 0 else 0
+            log.debug("  parse progress: %d%% (%s / %s), parsed %d values, %.1f MB/s",
+                      pct, _human_size(idx), _human_size(n), count, rate)
+            next_pct_mark = idx + pct_step
         try:
             value, end = decoder.raw_decode(text, idx)
         except json.JSONDecodeError as e:
-            print(f"WARN: skip {f}: JSONDecodeError at char {idx}: {e}", file=sys.stderr)
-            # 从失败位置附近往后找下一个 '{' 或 '[' 再继续, 避免一个错殂整个文件
+            log.warning("skip %s: JSONDecodeError at char %d (%d%%): %s",
+                        f, idx, idx * 100 // max(n, 1), e)
+            skipped_count += 1
+            # 从失败位置附近往后找下一个 '{' 或 '[' 再继续
             nxt = min(n, idx + 1)
             while nxt < n and text[nxt] not in "{[":
                 nxt += 1
             idx = nxt
             continue
+        prev_len = len(entries)
         _emit_value(value, f, entries)
+        appended = len(entries) - prev_len
         count += 1
+        if log.isEnabledFor(logging.DEBUG) and (count % max_block_dbg == 0 or count == 1):
+            log.debug("  parsed value #%d at char %d-%d (appended %d entries)", count, idx, end, appended)
         idx = end
+    t_total = time.time()
+    t_read_elapsed = t_read - t_start
+    t_parse_elapsed = t_total - t_read
+    t_all = t_total - t_start
+    if log.isEnabledFor(logging.DEBUG) or t_all > 5:
+        log.info("  %s: read %.1fs, parsed %d values in %.1fs, total %.1fs (skipped %d decode errors)",
+                 f.name, t_read_elapsed, count, t_parse_elapsed, t_all, skipped_count)
     if count == 0:
-        print(f"WARN: {f} 没解析到任何 JSON 值", file=sys.stderr)
+        log.warning("%s 没解析到任何 JSON 值", f)
+    else:
+        log.info("  %s -> %d top-level value(s), total entries so far: %d", f, count, len(entries))
+    return count
 
 
 def _emit_value(value, src: Path, entries: list):
     """把单个顶层 JSON 值展开为 entry 列表附加进去.
     只接受含 titleStr / path / html 至少之一的 dict (避免吞掉 sentinel/garbage)."""
+    pushed = 0
+    sentinel_dropped = 0
     def push(item):
+        nonlocal pushed, sentinel_dropped
         if not isinstance(item, dict):
             return
         if not any(k in item for k in ("titleStr", "path", "html")):
+            sentinel_dropped += 1
             return  # 缺全部章节字段 -> 不是真章节, 丢弃
         entries.append(_normalize_entry(item, src))
+        pushed += 1
     if isinstance(value, dict):
         if "chapters" in value and isinstance(value["chapters"], list):
             for c in value["chapters"]:
@@ -146,6 +257,8 @@ def _emit_value(value, src: Path, entries: list):
     elif isinstance(value, list):
         for c in value:
             push(c)
+    if log.isEnabledFor(logging.DEBUG) and sentinel_dropped:
+        log.debug("  dropped %d sentinel/garbage dict(s) in %s", sentinel_dropped, src)
 
 
 def _normalize_entry(raw, src):
@@ -156,6 +269,85 @@ def _normalize_entry(raw, src):
     raw.setdefault("html", "")
     raw["_src"] = str(src)
     return raw
+
+
+# ----------------------------- 过滤器 (path / heading 黑/白名单) -----------------------------
+
+class Filter:
+    """配置示例 filter.json:
+    {
+      "pathWhitelist":      [],          # 为空 = 不启用白名单
+      "pathBlacklist":      ["*接口与流量*"],
+      "headingWhitelist":   [],
+      "headingBlacklist":   ["*修订历史*", "{{第*节:*}}"]
+    }
+
+    命中黑名单 (或白名单存在但未命中) 的层级 -> status=skip:
+      - 章节跳过对比, 但章节树仍展示该路径 (左侧)
+      - heading 跳过对比, 中栏与右栏仍展示该 heading 与其后段落 (按 keep 风格)
+    全部为空时, Filter 不生效 (等价于不禁用任何层级).
+    """
+    def __init__(self, cfg=None):
+        cfg = cfg or {}
+        self.path_wh = cfg.get("pathWhitelist", []) or []
+        self.path_bl = cfg.get("pathBlacklist", []) or []
+        self.heading_wh = cfg.get("headingWhitelist", []) or []
+        self.heading_bl = cfg.get("headingBlacklist", []) or []
+        # 编译为 fnmatch translate 正则
+        self.path_wh_re = [self._compile(p) for p in self.path_wh]
+        self.path_bl_re = [self._compile(p) for p in self.path_bl]
+        self.heading_wh_re = [self._compile(p) for p in self.heading_wh]
+        self.heading_bl_re = [self._compile(p) for p in self.heading_bl]
+        self.active = any([self.path_wh, self.path_bl, self.heading_wh, self.heading_bl])
+        log.info("Filter init: pathWh=%s pathBl=%s headingWh=%s headingBl=%s active=%s",
+                 self.path_wh, self.path_bl, self.heading_wh, self.heading_bl, self.active)
+
+    @staticmethod
+    def _compile(pat):
+        return re.compile(fnmatch.translate(pat))
+
+    @staticmethod
+    def _any_match(s, regs):
+        return any(r.fullmatch(s) for r in regs)
+
+    def should_skip_path(self, stripped_path: str) -> bool:
+        """章节是否跳过对比 (status=skip)."""
+        if not self.active:
+            return False
+        if self.path_bl_re and self._any_match(stripped_path, self.path_bl_re):
+            return True
+        if self.path_wh_re and not self._any_match(stripped_path, self.path_wh_re):
+            return True
+        return False
+
+    def should_skip_heading(self, heading_title: str) -> bool:
+        """heading 是否跳过对比 (status=skip, 含其下所有段落)."""
+        if not self.active:
+            return False
+        if self.heading_bl_re and self._any_match(heading_title, self.heading_bl_re):
+            return True
+        if self.heading_wh_re and not self._any_match(heading_title, self.heading_wh_re):
+            return True
+        return False
+
+
+def load_filter(path=None):
+    """加载 filter 配置; 未给定 path -> 默认无过滤."""
+    if not path:
+        return Filter()
+    p = Path(path)
+    if not p.is_file():
+        log.warning("filter file not found: %s (will skip filtering)", p)
+        return Filter()
+    try:
+        cfg = json.loads(p.read_text(encoding="utf-8-sig"))
+    except Exception as e:
+        log.error("filter file %s parse failed: %s (will skip filtering)", p, e)
+        return Filter()
+    if not isinstance(cfg, dict):
+        log.error("filter cfg top-level must be object: %s", p)
+        return Filter()
+    return Filter(cfg)
 
 
 # ----------------------------- 章节树构建 -----------------------------
@@ -424,15 +616,18 @@ def signature(block: Block) -> str:
     return "?"
 
 
-def diff_blocks(old_blocks, new_blocks, pid_prefix="ch"):
+def diff_blocks(old_blocks, new_blocks, pid_prefix="ch", heading_filter=None):
     """对齐两段 block 序列, 返回最终的 paragraphs 列表 (含 status / contentHtml / oldHtml / newHtml 等).
 
     pid 形如 `<chapterId>-p<seq>`, 跨章节唯一, 避免前端 findChapterIdOfParagraph 误中并列章节.
+
+    如果 heading_filter 不为 None, 对每个 heading 调用 should_skip_heading(title),
+    命中的 heading 与其下到下一个同级/上级 heading 之间的所有段落都标记为 skip.
     """
     sm = difflib.SequenceMatcher(a=[signature(b) for b in old_blocks],
                                  b=[signature(b) for b in new_blocks],
                                  autojunk=False)
-    out = []
+    raw_paras = []
     pid_counter = 0
     def next_pid():
         nonlocal pid_counter
@@ -441,35 +636,63 @@ def diff_blocks(old_blocks, new_blocks, pid_prefix="ch"):
 
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
-            # 对齐到 equal, 但需检查 html 字符串是否一致以决定 keep / chg
             for idx in range(i2 - i1):
                 ob = old_blocks[i1 + idx]
                 nb = new_blocks[j1 + idx]
                 if _exact_html(ob.html, nb.html):
-                    out.append(_mk_keep(ob, next_pid()))
+                    raw_paras.append(_mk_keep(ob, next_pid()))
                 else:
-                    out.append(_mk_chg(ob, nb, next_pid()))
+                    raw_paras.append(_mk_chg(ob, nb, next_pid()))
         elif tag == "delete":
-            # old 中存在, new 中不存在 -> del
             for idx in range(i1, i2):
-                out.append(_mk_del(old_blocks[idx], next_pid()))
+                raw_paras.append(_mk_del(old_blocks[idx], next_pid()))
         elif tag == "insert":
             for idx in range(j1, j2):
-                out.append(_mk_add(new_blocks[idx], next_pid()))
+                raw_paras.append(_mk_add(new_blocks[idx], next_pid()))
         elif tag == "replace":
-            # 简化策略: 按位置对齐 (若两边块数量相同); 多余的走 dele/add
             n_old = i2 - i1
             n_new = j2 - j1
             pairing = min(n_old, n_new)
             for k in range(pairing):
                 ob = old_blocks[i1 + k]
                 nb = new_blocks[j1 + k]
-                out.append(_mk_chg(ob, nb, next_pid()))
+                raw_paras.append(_mk_chg(ob, nb, next_pid()))
             for k in range(pairing, n_old):
-                out.append(_mk_del(old_blocks[i1 + k], next_pid()))
+                raw_paras.append(_mk_del(old_blocks[i1 + k], next_pid()))
             for k in range(pairing, n_new):
-                out.append(_mk_add(new_blocks[j1 + k], next_pid()))
+                raw_paras.append(_mk_add(new_blocks[j1 + k], next_pid()))
+
+    # 后处理: heading filter 应用
+    if heading_filter is not None and heading_filter.active:
+        out = _apply_heading_filter(raw_paras, heading_filter)
+    else:
+        out = raw_paras
     return out
+
+
+def _apply_heading_filter(raw_paras, heading_filter):
+    """遍历 raw_paras, 对每个 heading 与其下属段落标记 skip."""
+    result = []
+    in_skip_scope = False
+    skip_level = None
+    for p in raw_paras:
+        if p.get("type") == "heading":
+            should_skip = heading_filter.should_skip_heading(p.get("title", ""))
+            if should_skip:
+                in_skip_scope = True
+                skip_level = p.get("level")
+            else:
+                in_skip_scope = False
+                skip_level = None
+        else:
+            # 非 heading 段落: 检查是否遇到同级或上级 heading 退出了 skip scope
+            # (已在 heading 分支中处理)
+            pass
+        if in_skip_scope:
+            p = dict(p)
+            p["status"] = "skip"
+        result.append(p)
+    return result
 
 
 def _exact_html(a: str, b: str) -> bool:
@@ -776,23 +999,24 @@ def _node_visible(node):
     return bool(node.id) or any(_node_visible(c) for c in node.children)
 
 
-def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver):
+def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver, heading_filter=None):
     """根据 old/new entry 解析并 diff 段落, 复用到 dict node.id -> [block dictionaries].
 
     pid 前缀用本节点 id (e.g. 'ch1-1-1'), 输出 `<cid>-p<seq>`,
     保证跨章节唯一, 避免前端 findChapterIdOfParagraph 误中并列章节.
+    heading_filter 应用到本节点的所有段落.
     """
     old_e = node.old_entry
     new_e = node.new_entry
     if not old_e and not new_e:
-        return None  # 无 entry -> 无 paragraphs
+        return None
     has_old = bool(node.old_entry)
     has_new = bool(node.new_entry)
     pid_prefix = node.id or "ch"
     if has_old and has_new:
         old_blocks = parse_blocks(old_e["html"])
         new_blocks = parse_blocks(new_e["html"])
-        paras = diff_blocks(old_blocks, new_blocks, pid_prefix=pid_prefix)
+        paras = diff_blocks(old_blocks, new_blocks, pid_prefix=pid_prefix, heading_filter=heading_filter)
     elif has_old:
         paras = [_mk_del(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(old_e["html"]))]
     elif has_new:
@@ -813,13 +1037,13 @@ def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver):
     return paras
 
 
-def collect_all_paragraphs(root: ChapterNode, resolver):
+def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None):
     out = {}
     stack = [root]
     while stack:
         n = stack.pop()
         if n.id:
-            ps = collect_paragraphs(n, resolver)
+            ps = collect_paragraphs(n, resolver, heading_filter=filter_obj)
             if ps is not None:
                 out[n.id] = ps
         for c in n.children:
@@ -829,7 +1053,7 @@ def collect_all_paragraphs(root: ChapterNode, resolver):
 
 def calc_stats(root: ChapterNode):
     """统计有内容章节 (非 bridge) 中各状态 count -> meta.stats."""
-    counts = {"add": 0, "del": 0, "chg": 0}
+    counts = {"add": 0, "del": 0, "chg": 0, "skip": 0}
     def walk(n):
         if n.id and not getattr(n, "bridge", False):
             if n.status in counts: counts[n.status] += 1
@@ -837,6 +1061,33 @@ def calc_stats(root: ChapterNode):
             walk(c)
     walk(root)
     return counts
+
+
+# ----------------------------- 报告目录创建 -----------------------------
+
+REPORT_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "report"
+REPORT_TEMPLATE_FILES = [
+    "index.html",
+    "css/report.css",
+    "js/report.js",
+    "js/splitter.js",
+    "js/scroll-sync.js",
+]
+
+
+def copy_report_template(out_dir: Path):
+    """从 report/ 模板目录拷贝 HTML/CSS/JS 到输出目录, 保留原模板不动."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for rel in REPORT_TEMPLATE_FILES:
+        src = REPORT_TEMPLATE_DIR / rel
+        dst = out_dir / rel
+        if not src.exists():
+            log.warning("template file not found, skipping: %s", src)
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        log.debug("copied %s -> %s", src, dst)
+    log.info("report template copied to %s", out_dir)
 
 
 # ----------------------------- main -----------------------------
@@ -847,10 +1098,12 @@ def main(argv=None):
     p.add_argument("--new", required=True, help="新版本 JSON (文件或目录)")
     p.add_argument("--hedex", default="data/parse/hedex",
                    help="解压后的 hedex 目录 (含 resources/)")
-    p.add_argument("--out", default="report/data/diff-data.js",
-                   help="输出 JS 文件路径")
-    p.add_argument("--assets", default="report/assets/images/hedex",
-                   help="图片资源输出目录")
+    p.add_argument("--out-dir", default=None,
+                   help="报告输出目录 (默认 output/report-<timestamp>/); 拷入模板+数据+图片")
+    p.add_argument("--filter", default=None,
+                   help="过滤配置 JSON (path/heading 黑/白名单)")
+    p.add_argument("--log-level", default="INFO",
+                   help="日志级别: DEBUG / INFO / WARN (默认 INFO)")
     p.add_argument("--name", default="5G RAN 特性文档 版本对比",
                    help="报告中显示的标题")
     p.add_argument("--old-version", default=None,
@@ -859,11 +1112,32 @@ def main(argv=None):
                    help="新版本标签 (默认从 path 自动嗅探)")
     args = p.parse_args(argv)
 
+    setup_logging(args.log_level)
+
     repo = Path(__file__).resolve().parent.parent
+
+    # 确定输出目录
+    if args.out_dir:
+        out_dir = Path(args.out_dir)
+        if not out_dir.is_absolute():
+            out_dir = repo / out_dir
+    else:
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        out_dir = repo / "output" / f"report-{ts}"
+
+    # 加载 filter 配置
+    filter_obj = load_filter(args.filter)
+
+    # 加载数据, 容错缺失文件
     old = load_entries(str(Path(args.old)))
     new = load_entries(str(Path(args.new)))
     if not old and not new:
-        print("ERROR: neither old nor new has entries", file=sys.stderr); return 2
+        log.error("neither old nor new has entries")
+        return 2
+    if not old:
+        log.warning("OLD side has no entries, all chapters will be marked 'add'")
+    if not new:
+        log.warning("NEW side has no entries, all chapters will be marked 'del'")
 
     # 嗅探版本名 (取 path 第一个 segment)
     def sniff_version(entries, fallback):
@@ -880,13 +1154,17 @@ def main(argv=None):
     assign_ids(root)
     determine_tree_status(root)
 
+    # 应用 path filter: 将命中节点标记为 skip
+    if filter_obj.active:
+        _apply_path_filter(root, filter_obj)
+
     # 资源解析器
     hedex_dir = (repo / args.hedex) if not Path(args.hedex).is_absolute() else Path(args.hedex)
-    out_dir = (repo / args.assets) if not Path(args.assets).is_absolute() else Path(args.assets)
-    resolver = AssetImageResolver(hedex_dir, out_dir)
+    assets_dir = out_dir / "assets" / "images" / "hedex"
+    resolver = AssetImageResolver(hedex_dir, assets_dir)
 
     chapters = [render_tree(c) for c in root.children if _node_visible(c)]
-    paragraphs_by_chapter = collect_all_paragraphs(root, resolver)
+    paragraphs_by_chapter = collect_all_paragraphs(root, resolver, filter_obj=filter_obj)
     stats = calc_stats(root)
     img_count = sum(1 for ps in paragraphs_by_chapter.values() for p in ps if p.get("type") == "image")
     stats["img"] = img_count
@@ -904,8 +1182,13 @@ def main(argv=None):
         "paragraphsByChapter": paragraphs_by_chapter,
     }
 
-    out_path = (repo / args.out) if not Path(args.out).is_absolute() else Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # 拷贝报告模板到输出目录
+    copy_report_template(out_dir)
+
+    # 写数据文件
+    data_dir = out_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    out_path = data_dir / "diff-data.js"
     body = json.dumps(DiffData, ensure_ascii=False, indent=2)
     out_path.write_text(
         "/**\n"
@@ -916,11 +1199,38 @@ def main(argv=None):
         "window.DIFF_DATA = " + body + ";\n",
         encoding="utf-8"
     )
-    print(f"OK: wrote {out_path}")
-    print(f"    chapters: {len(chapters)}")
-    print(f"    paragraphsByChapter keys: {len(paragraphs_by_chapter)}")
-    print(f"    stats: {stats}")
+    log.info("report written to %s", out_dir)
+    log.info("  chapters: %d", len(chapters))
+    log.info("  paragraphsByChapter keys: %d", len(paragraphs_by_chapter))
+    log.info("  stats: %s", stats)
+    print(f"OK: report generated in {out_dir}")
+    print(f"    Open {out_dir / 'index.html'} in a browser to view.")
     return 0
+
+
+def _apply_path_filter(root: ChapterNode, filter_obj: Filter):
+    """遍历章节树, 对 path 命中过滤的节点及其子树设置 status=skip."""
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.id and not getattr(node, "bridge", False):
+            full_path = _rebuild_path(node)
+            if filter_obj.should_skip_path(full_path):
+                node.status = "skip"
+                log.debug("path filter skip: %s", full_path)
+        for c in node.children:
+            stack.append(c)
+
+
+def _rebuild_path(node: ChapterNode):
+    """从 entry 中取原始的 stripped path; 若无 entry 则从树向上拼接."""
+    if node.entry:
+        return strip_version(node.entry["path"])
+    if node.old_entry:
+        return strip_version(node.old_entry["path"])
+    if node.new_entry:
+        return strip_version(node.new_entry["path"])
+    return node.title
 
 
 def _now_str():

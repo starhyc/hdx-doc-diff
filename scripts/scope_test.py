@@ -32,7 +32,9 @@ def get_scoped_paras(paras, focus_pid):
 
 
 def main():
-    txt = Path("report/data/diff-data.js").read_text(encoding="utf-8")
+    import sys
+    data_path = sys.argv[1] if len(sys.argv) > 1 else "report/data/diff-data.js"
+    txt = Path(data_path).read_text(encoding="utf-8")
     m = re.search(r"window\.DIFF_DATA\s*=\s*(\{.*\});", txt, re.DOTALL)
     dd = json.loads(m.group(1))
     pbc = dd["paragraphsByChapter"]

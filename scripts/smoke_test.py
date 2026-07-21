@@ -32,7 +32,9 @@ def walk(chapters, ids, bridges):
 
 
 def main():
-    dd = load_diff_data(Path("report/data/diff-data.js"))
+    import sys
+    data_path = sys.argv[1] if len(sys.argv) > 1 else "report/data/diff-data.js"
+    dd = load_diff_data(Path(data_path))
     assert "meta" in dd and "chapters" in dd and "paragraphsByChapter" in dd
     print("PASS: 顶层字段完整")
 
@@ -60,30 +62,35 @@ def main():
     assert not bad_leaf, f"leaf chapters without paragraphs: {bad_leaf}"
     print(f"PASS: bridge={len(bridge_ids)} 节点无 paras, leaf={len(all_ids - bridge_ids)} 节点都有 paras")
 
-    valid_status = {"keep", "add", "del", "chg"}
+    valid_status = {"keep", "add", "del", "chg", "skip"}
     for cid, paras in dd["paragraphsByChapter"].items():
         for p in paras:
-            assert p.get("status") in valid_status, f"{cid}/{p.get('id')} bad status"
+            assert p.get("status") in valid_status, f"{cid}/{p.get('id')} bad status: {p.get('status')}"
             if p["type"] == "heading":
                 lvl = p.get("level")
                 assert lvl in (1, 2, 3, 4, 5, 6), f"{cid}/{p['id']} heading level={lvl}"
             else:
-                # non-heading types should not carry level
                 assert p.get("level") in (None,), \
                     f"{cid}/{p['id']} type={p['type']} carrying level={p.get('level')}"
-            # keep -> 有 contentHtml; add/del/chg -> 有 oldHtml/newHtml
-            if p["status"] == "keep":
-                assert "contentHtml" in p or p["type"] == "image", f"{cid}/{p['id']} keep缺contentHtml"
+            # keep/skip -> 有 contentHtml (或 oldHtml/newHtml for skip)
+            if p["status"] in ("keep", "skip"):
+                if p["type"] != "image":
+                    if p["status"] == "skip":
+                        # skip 可能保留 oldHtml/newHtml (从原状态继承)
+                        assert "contentHtml" in p or ("oldHtml" in p and "newHtml" in p), \
+                            f"{cid}/{p['id']} skip缺contentHtml或old/newHtml"
+                    else:
+                        assert "contentHtml" in p, f"{cid}/{p['id']} keep缺contentHtml"
             else:
                 if p["type"] != "image":
-                    assert "oldHtml" in p and "newHtml" in p, f"{cid}/{p['id']} 非keep缺old/newHtml"
+                    assert "oldHtml" in p and "newHtml" in p, f"{cid}/{p['id']} 非keep/skip缺old/newHtml"
                 else:
                     assert "oldImage" in p and "newImage" in p, f"{cid}/{p['id']} image缺old/newImage"
     print(f"PASS: 段落结构字段符合契约")
 
     stats = dd["meta"]["stats"]
     # 走一遍 chapters 数 status
-    actual = {"add": 0, "del": 0, "chg": 0}
+    actual = {"add": 0, "del": 0, "chg": 0, "skip": 0}
     def walk_stats(c):
         s = c.get("status") or "keep"
         if c.get("bridge"):
@@ -94,7 +101,8 @@ def main():
             walk_stats(cc)
     for c in dd["chapters"]:
         walk_stats(c)
-    for k, exp in (("add", stats["add"]), ("del", stats["del"]), ("chg", stats["chg"])):
+    for k, exp in (("add", stats.get("add", 0)), ("del", stats.get("del", 0)),
+                   ("chg", stats.get("chg", 0)), ("skip", stats.get("skip", 0))):
         assert actual[k] == exp, f"stats {k} mismatch: {actual[k]} vs {exp}"
     print(f"PASS: meta.stats 与树非-bridge count 一致: {actual}")
 

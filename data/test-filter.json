@@ -1,0 +1,6 @@
+{
+  "pathWhitelist": [],
+  "pathBlacklist": ["*修订历史*"],
+  "headingWhitelist": [],
+  "headingBlacklist": ["*修订历史*"]
+}

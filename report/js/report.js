@@ -15,7 +15,7 @@
   const oldEl = document.getElementById('diff-old');
   const newEl = document.getElementById('diff-new');
 
-  const STATUS_BADGE = { add: '新增', del: '删除', chg: '修改' };
+  const STATUS_BADGE = { add: '新增', del: '删除', chg: '修改', skip: '跳过' };
   const HEADING_INDENT = 14; // 像素/层级
   const BASE_INDENT = 8;     // 基础内边距
 
@@ -129,6 +129,7 @@
   }
 
   // 段落栏: 按文档标题层级缩进, 仅显示 heading 段; 无 heading 则空 (右侧仍展示整章内容)
+  // skip 状态的 heading 也显示 (使用紫色虚线与特殊样式), 表示已被过滤但仍可见
   function renderParagraphList(chapterId) {
     listEl.innerHTML = '';
     const paras = D.paragraphsByChapter && D.paragraphsByChapter[chapterId];
@@ -139,7 +140,7 @@
       listEl.appendChild(li);
       return;
     }
-    // 仅展示 heading 段 (按其在原文档出现顺序 + level 缩进)
+    // 仅展示 heading 段 (含 skip 状态)
     const headings = paras.filter((p) => p.type === 'heading');
     if (headings.length === 0) {
       const li = document.createElement('li');
@@ -167,7 +168,7 @@
       if (status !== 'keep') {
         const s = document.createElement('span');
         s.className = 'paragraph-status s-' + status;
-        s.textContent = STATUS_BADGE[status];
+        s.textContent = STATUS_BADGE[status] || '';
         li.appendChild(s);
       }
       li.addEventListener('click', () => selectParagraph(p.id));
@@ -246,10 +247,11 @@
       const status = p.status || 'keep';
       const isFocus = focusPid && p.id === focusPid;
       const isKeep = status === 'keep';
+      const isSkip = status === 'skip';
       const klass = ['diff-block', 'type-' + p.type, 'status-' + status];
       if (p.type === 'heading') klass.push('h-level-' + (p.level || 2));
-      // 整章视图 (无聚焦) 把 keep 段视为上下文弱化; 聚焦子树视图则全部按主内容渲染
-      if (isKeep && !focusPid) klass.push('context');
+      // 整章视图 (无聚焦) 把 keep 段视为上下文弱化; skip 段也弱化但保留样式
+      if ((isKeep || isSkip) && !focusPid) klass.push('context');
       if (isFocus) klass.push('focused');
       oldHtml.push(`<div class="${klass.join(' ')}" data-pid="${p.id}">${renderOld(p)}</div>`);
       newHtml.push(`<div class="${klass.join(' ')}" data-pid="${p.id}">${renderNew(p)}</div>`);
@@ -264,7 +266,7 @@
 
   function renderOld(p) {
     if (p.status === 'add') return '<div class="diff-empty">(旧版本无此内容)</div>';
-    if (p.status === 'keep') {
+    if (p.status === 'keep' || p.status === 'skip') {
       if (p.type === 'image') return renderImage(p, p.oldImage || p.newImage, p.oldCaption || p.newCaption, p.status, p.oldHash);
       return p.contentHtml || p.oldHtml || '<div class="diff-empty">(无)</div>';
     }
@@ -274,7 +276,7 @@
 
   function renderNew(p) {
     if (p.status === 'del') return '<div class="diff-empty">(新版本中已删除)</div>';
-    if (p.status === 'keep') {
+    if (p.status === 'keep' || p.status === 'skip') {
       if (p.type === 'image') return renderImage(p, p.newImage || p.oldImage, p.newCaption || p.oldCaption, p.status, p.newHash);
       return p.contentHtml || p.newHtml || '<div class="diff-empty">(无)</div>';
     }
@@ -287,7 +289,7 @@
     return `<div class="image-block"><img src="${src || ''}" alt="${caption || ''}" /><div class="image-caption">${caption || ''}</div><div class="image-tag-row"><span class="image-status s-${status}">${tag}</span>${hash ? `<span class="image-hash">sha1: ${hash}</span>` : ''}</div></div>`;
   }
   function imageStatusLabel(s) {
-    return { add: '新增', del: '删除', chg: '已变更', keep: '未变更' }[s] || '未变更';
+    return { add: '新增', del: '删除', chg: '已变更', keep: '未变更', skip: '已跳过' }[s] || '未变更';
   }
 
   if (document.readyState === 'loading') {
