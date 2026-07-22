@@ -296,11 +296,16 @@ class Filter:
     """配置示例 filter.json:
     {
       "pathWhitelist":      [],          # 为空 = 不启用白名单
-      "pathBlacklist":      ["*接口与流量*"],
+      "pathBlacklist":      ["接口与流量"],
       "headingWhitelist":   [],
-      "headingBlacklist":   ["*修订历史*", "{{第*节:*}}"],
+      "headingBlacklist":   ["修订历史", "第*节:*"],
       "maxHeadingLevel":    0            # 0=展示全部标题层级; N>0=仅展示 h1~hN
     }
+
+    匹配规则:
+      - 默认模糊包含: "修订历史" 自动匹配 "*修订历史*"
+      - 匹配时忽略空格: "目  录" 可命中 "目录"
+      - 仍支持 * 通配符做更精细的 pattern: "第*节:*"
 
     命中黑名单 (或白名单存在但未命中) 的层级 -> status=skip:
       - 章节跳过对比, 但章节树仍展示该路径 (左侧)
@@ -326,10 +331,15 @@ class Filter:
 
     @staticmethod
     def _compile(pat):
+        # 去掉空格后自动前后加 * → 默认模糊包含匹配
+        pat = re.sub(r'\s+', '', pat)
+        pat = f'*{pat}*'
         return re.compile(fnmatch.translate(pat))
 
     @staticmethod
     def _any_match(s, regs):
+        # 目标字符串去掉空格再匹配 (兼容 "目  录" 这类含多余空格文本)
+        s = re.sub(r'\s+', '', s)
         return any(r.fullmatch(s) for r in regs)
 
     def should_skip_path(self, stripped_path: str) -> bool:
