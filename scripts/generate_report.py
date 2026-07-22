@@ -1731,7 +1731,21 @@ class ChangeSummarizer:
         }
         resp = requests.post(url, json=payload, headers=headers, timeout=self._timeout)
         resp.raise_for_status()
-        data = resp.json()
+        raw = resp.text.strip()
+        log.debug("  API raw response (%d chars, status=%d): %s",
+                  len(raw), resp.status_code, raw[:300] if raw else "(empty)")
+        if not raw:
+            raise ValueError(
+                f"API returned empty body (status={resp.status_code}), "
+                f"check server at {self._api_base}"
+            )
+        try:
+            data = resp.json()
+        except json.JSONDecodeError:
+            snippet = raw[:500]
+            raise ValueError(
+                f"API returned non-JSON response (status={resp.status_code}): {snippet}"
+            )
         # 兼容多种响应格式
         if "choices" in data and len(data["choices"]) > 0:
             choice = data["choices"][0]
@@ -1743,7 +1757,7 @@ class ChangeSummarizer:
             return data["content"]
         if "response" in data:
             return data["response"]
-        raise ValueError(f"unexpected API response format: {list(data.keys())}")
+        raise ValueError(f"unexpected API response format, keys: {list(data.keys())}")
 
     # ---- 章节摘要 (支持超长章节自动分片) ----
 
