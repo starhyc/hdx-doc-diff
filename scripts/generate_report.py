@@ -43,6 +43,7 @@ import json
 import logging
 import os
 import re
+import requests
 import shutil
 import sys
 import time
@@ -1516,6 +1517,316 @@ def _write_paragraph_files(paragraphs_by_chapter: dict, paragraphs_dir: Path):
     return paths
 
 
+# ----------------------------- AI 变更摘要 -----------------------------
+
+# 摘要系统提示词 (中文, 面向 5G RAN 技术文档)
+_SUMMARY_SYSTEM_PROMPT = """\
+你是一份技术文档版本对比报告的 AI 摘要助手。请根据提供的变更列表，用简洁的中文概括该章节从旧版本到新版本的主要变化。
+
+要求：
+1. 关注实质性内容变化（新增/删除/修改的功能、参数、流程、配置等），忽略纯格式变化。
+2. 按重要性排序，最重要的变化放在前面。
+3. 使用 2-5 条要点概括，每条不超过 100 字。
+4. 如果变更很多，只挑最重要的 5 条。
+5. 仅在完全没有实质性变更时才输出"无实质性变更"。"""
+
+_EXECUTIVE_SYSTEM_PROMPT = """\
+你是一份技术文档版本对比报告的总览摘要助手。以下是各章节的变更摘要，请生成一份总览摘要（Executive Summary）。
+
+要求：
+1. 开头用一段话概述本次文档更新的整体情况（50-100 字）。
+2. 然后列出最重要的 5-10 条跨章节的关键变更，按重要性排序。
+3. 每条标注涉及的章节名称。
+4. 使用中文。"""
+
+
+class ChangeSummarizer:
+    """基于 OpenAI 兼容 API 的文档变更 AI 摘要器.
+
+    对每个有变更的章节提取纯文本变更列表, 调用 LLM 生成章节级摘要,
+    最后汇总为文档级总览摘要.
+    """
+
+    def __init__(self, api_base, api_key, model, max_chars_per_chunk=12000):
+        self.api_base = api_base.rstrip("/")
+        self.api_key = api_key
+        self.model = model
+        self.max_chars_per_chunk = max_chars_per_chunk
+
+    # ---- 章节路径映射 ----
+
+    @staticmethod
+    def build_chapter_path_map(root):
+        """遍历章节树, 构建 node_id -> 完整层级路径 的映射."""
+        path_map = {}
+
+        def walk(node, ancestors):
+            current = ancestors + [node.title]
+            if node.id:
+                path_map[node.id] = " > ".join(current)
+            for child in node.children:
+                walk(child, current)
+
+        for c in root.children:
+            walk(c, [])
+        return path_map
+
+    # ---- 提取变更 ----
+
+    def extract_chapter_changes(self, paragraphs_by_chapter, path_map):
+        """从段落 diff 中提取有变更章节的纯文本变更列表.
+
+        Returns:
+            list of (chapter_id, chapter_path, changes_text)
+        """
+        results = []
+        for cid, paras in paragraphs_by_chapter.items():
+            changed = [p for p in paras if p.get("status") in ("add", "del", "chg")]
+            if not changed:
+                continue
+            text = self._format_changes(changed)
+            if not text.strip():
+                continue
+            chapter_path = path_map.get(cid, cid)
+            results.append((cid, chapter_path, text))
+        return results
+
+    def _format_changes(self, changed_paras):
+        """将变更段落列表格式化为结构化纯文本."""
+        lines = []
+        type_labels = {
+            "heading": "标题", "text": "文本", "table": "表格",
+            "list": "列表", "image": "图片",
+        }
+        for p in changed_paras:
+            status = p.get("status", "?")
+            ptype = p.get("type", "?")
+            title = (p.get("title") or "")[:80]
+
+            if ptype == "image":
+                # 图片块: 用 caption + 文件名描述变更
+                if status == "add":
+                    label = "[新增]"
+                    content = f"图片: {p.get('newImage', '')}\n说明: {p.get('newCaption', '')}"
+                elif status == "del":
+                    label = "[删除]"
+                    content = f"图片: {p.get('oldImage', '')}\n说明: {p.get('oldCaption', '')}"
+                elif status == "chg":
+                    label = "[修改]"
+                    content = (f"旧图: {p.get('oldImage', '')} ({p.get('oldCaption', '')})\n"
+                               f"    新图: {p.get('newImage', '')} ({p.get('newCaption', '')})")
+                else:
+                    continue
+            elif status == "add":
+                label = "[新增]"
+                content = self._strip_html(p.get("newHtml", ""))
+            elif status == "del":
+                label = "[删除]"
+                content = self._strip_html(p.get("oldHtml", ""))
+            elif status == "chg":
+                label = "[修改]"
+                old_text = self._strip_html(p.get("oldHtml", ""))
+                new_text = self._strip_html(p.get("newHtml", ""))
+                if old_text == new_text:
+                    continue  # 纯标签差异, 跳过
+                content = f"旧: {old_text}\n    新: {new_text}"
+            else:
+                continue
+
+            tlabel = type_labels.get(ptype, ptype)
+            heading_lvl = f"H{p.get('level')}" if ptype == "heading" and p.get("level") else ""
+            header = f"{label} {tlabel}{heading_lvl}: {title}" if title else f"{label} {tlabel}"
+            lines.append(header)
+            if content and content.strip():
+                # 限制单段长度
+                truncated = content[:600]
+                if len(content) > 600:
+                    truncated += f"...(截断, 原文 {len(content)} 字)"
+                lines.append(f"  {truncated}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _strip_html(html_str):
+        """从 HTML 提取纯文本: 去掉 diff span 包装 -> 去掉所有标签 -> 解实体 -> 归一化空白."""
+        if not html_str:
+            return ""
+        # 先去掉 diff span (保留内部文本)
+        text = re.sub(r'<span class="(?:add|del)">', "", html_str)
+        text = re.sub(r"</span>", "", text)
+        # 去掉所有 HTML 标签
+        text = re.sub(r"<[^>]+>", " ", text)
+        # 解码 HTML 实体
+        text = html_unescape(text)
+        # 归一化空白
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    # ---- LLM 调用 ----
+
+    def call_llm(self, system_prompt, user_content, temperature=0.3):
+        """调用 OpenAI 兼容的 chat/completions API, 返回 assistant 文本."""
+        url = f"{self.api_base}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "temperature": temperature,
+        }
+        resp = requests.post(url, json=payload, headers=headers, timeout=180)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+    # ---- 章节摘要 (支持超长章节自动分片) ----
+
+    def summarize_chapter(self, chapter_path, changes_text):
+        """对单个章节的变更列表生成 AI 摘要.
+
+        如果变更文本超出 max_chars_per_chunk, 按 heading 边界分片后分别摘要再合并.
+        """
+        chunks = self._split_changes(changes_text)
+
+        if len(chunks) == 1:
+            user = f"章节路径: {chapter_path}\n\n变更列表:\n{changes_text}"
+            return self.call_llm(_SUMMARY_SYSTEM_PROMPT, user)
+
+        log.info("    chapter split into %d chunks: %s", len(chunks), chapter_path)
+        chunk_summaries = []
+        for i, chunk in enumerate(chunks):
+            user = f"章节路径: {chapter_path} (部分 {i + 1}/{len(chunks)})\n\n变更列表:\n{chunk}"
+            chunk_summaries.append(
+                self.call_llm(_SUMMARY_SYSTEM_PROMPT, user))
+            time.sleep(0.3)  # 限流间隔
+
+        # 合并各分片摘要
+        combined = "\n\n---\n\n".join(
+            f"部分 {j + 1} 摘要:\n{s}"
+            for j, s in enumerate(chunk_summaries))
+        combine_prompt = (
+            "以下是一份技术文档某个章节各部分的变更摘要，请合并为一份完整的章节摘要。\n"
+            "按重要性排序，用 2-5 条要点概括，每条不超过 100 字。"
+        )
+        return self.call_llm(combine_prompt, combined)
+
+    def _split_changes(self, changes_text):
+        """将变更文本按 heading 边界分片, 使每片不超过 max_chars_per_chunk."""
+        if len(changes_text) <= self.max_chars_per_chunk:
+            return [changes_text]
+
+        # 按 [新增/删除/修改] 标题: 分界
+        sections = re.split(
+            r"\n(?=\[(?:新增|删除|修改)\] 标题(?:\d|H))", changes_text)
+
+        chunks = []
+        current = ""
+        for sec in sections:
+            candidate = (current + "\n" + sec).strip() if current else sec
+            if len(candidate) > self.max_chars_per_chunk and current:
+                chunks.append(current.strip())
+                current = sec
+            else:
+                current = candidate
+        if current.strip():
+            chunks.append(current.strip())
+        return chunks or [changes_text]
+
+    # ---- 总览摘要 ----
+
+    def generate_executive_summary(self, chapter_summaries, old_ver, new_ver, doc_name):
+        """从各章节摘要汇总生成文档级总览摘要."""
+        if not chapter_summaries:
+            return "未检测到任何实质性变更。"
+
+        # 构造紧凑的摘要列表
+        parts = []
+        for i, (path, summary) in enumerate(chapter_summaries):
+            parts.append(f"### {i + 1}. {path}\n{summary}")
+        all_text = "\n\n".join(parts)
+
+        user = (
+            f"文档名称: {doc_name}\n"
+            f"版本: {old_ver} → {new_ver}\n"
+            f"共 {len(chapter_summaries)} 个章节有变更.\n\n"
+            f"各章节变更摘要:\n\n{all_text}"
+        )
+
+        # 如果总内容超限, 只取前 N 条最重要的摘要
+        if len(all_text) > self.max_chars_per_chunk * 2:
+            # 按摘要长度粗略评估重要性 (更长可能更重要), 取前 30 条
+            top_n = min(30, len(chapter_summaries))
+            parts = []
+            for i, (path, summary) in enumerate(chapter_summaries[:top_n]):
+                parts.append(f"### {i + 1}. {path}\n{summary}")
+            parts.append(f"\n(共 {len(chapter_summaries)} 个章节有变更, "
+                         f"以上为前 {top_n} 条, 其余已省略)")
+            all_text = "\n\n".join(parts)
+            user = (
+                f"文档名称: {doc_name}\n"
+                f"版本: {old_ver} → {new_ver}\n"
+                f"共 {len(chapter_summaries)} 个章节有变更 (以下展示前 {top_n} 条).\n\n"
+                f"各章节变更摘要:\n\n{all_text}"
+            )
+
+        return self.call_llm(_EXECUTIVE_SYSTEM_PROMPT, user)
+
+
+def _write_summary_files(chapter_summaries, executive_summary, meta, out_dir):
+    """将 AI 摘要写入 summary.md 和 summary.json."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Markdown
+    md_path = out_dir / "summary.md"
+    lines = [
+        f"# {meta.get('name', '文档版本对比')} - AI 变更摘要",
+        "",
+        f"**版本**: {meta.get('oldVersion', 'OLD')} → {meta.get('newVersion', 'NEW')}",
+        f"**生成时间**: {meta.get('generatedAt', '')}",
+        "",
+        "---",
+        "",
+        "## 总览摘要",
+        "",
+        executive_summary,
+        "",
+        "---",
+        "",
+        "## 各章节变更详情",
+        "",
+    ]
+    for i, (path, summary) in enumerate(chapter_summaries):
+        lines.append(f"### {i + 1}. {path}")
+        lines.append("")
+        lines.append(summary)
+        lines.append("")
+    md_path.write_text("\n".join(lines), encoding="utf-8")
+    log.info("summary markdown written to %s", md_path)
+
+    # JSON
+    json_path = out_dir / "summary.json"
+    json_data = {
+        "meta": {
+            "name": meta.get("name", ""),
+            "oldVersion": meta.get("oldVersion", ""),
+            "newVersion": meta.get("newVersion", ""),
+            "generatedAt": meta.get("generatedAt", ""),
+        },
+        "executiveSummary": executive_summary,
+        "chapterSummaries": [
+            {"path": path, "summary": summary}
+            for path, summary in chapter_summaries
+        ],
+    }
+    json_path.write_text(
+        json.dumps(json_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("summary json written to %s", json_path)
+
+
 # ----------------------------- main -----------------------------
 
 def main(argv=None):
@@ -1544,6 +1855,16 @@ def main(argv=None):
                    help="旧版本标签 (默认从 path 自动嗅探)")
     p.add_argument("--new-version", default=None,
                    help="新版本标签 (默认从 path 自动嗅探)")
+    p.add_argument("--summary", action="store_true", default=False,
+                   help="启用 AI 变更摘要 (需同时提供 --summary-api-key)")
+    p.add_argument("--summary-model", default="gpt-4o-mini",
+                   help="摘要使用的 LLM 模型名 (默认 gpt-4o-mini)")
+    p.add_argument("--summary-api-base", default="https://api.openai.com/v1",
+                   help="OpenAI 兼容 API 地址 (默认 https://api.openai.com/v1)")
+    p.add_argument("--summary-api-key", default="",
+                   help="API Key; 也可通过环境变量 SUMMARY_API_KEY 传入")
+    p.add_argument("--summary-max-chars", default=12000, type=int,
+                   help="单次 LLM 调用的最大变更文本字符数 (默认 12000)")
     args = p.parse_args(argv)
 
     setup_logging(args.log_level)
@@ -1653,10 +1974,78 @@ def main(argv=None):
     _write_diff_data_stream(DiffData, out_path)
     t3 = time.time()
     log.info("diff data written in %.1fs", t3 - t2)
+
+    # ---- AI 变更摘要 ----
+    if args.summary:
+        api_key = args.summary_api_key or os.environ.get("SUMMARY_API_KEY", "")
+        if not api_key:
+            log.error("--summary requires an API key (--summary-api-key or SUMMARY_API_KEY env)")
+            return 3
+        log.info("generating AI change summary (model=%s, max_chars=%d) ...",
+                 args.summary_model, args.summary_max_chars)
+        summarizer = ChangeSummarizer(
+            api_base=args.summary_api_base,
+            api_key=api_key,
+            model=args.summary_model,
+            max_chars_per_chunk=args.summary_max_chars,
+        )
+        path_map = summarizer.build_chapter_path_map(root)
+        chapter_changes = summarizer.extract_chapter_changes(paragraphs_by_chapter, path_map)
+        total = len(chapter_changes)
+        log.info("  %d chapters with changes to summarize", total)
+
+        chapter_summaries = []
+        failed = 0
+        for idx, (cid, path, changes_text) in enumerate(chapter_changes):
+            log.info("  [%d/%d] summarizing: %s (%d chars)",
+                     idx + 1, total, path, len(changes_text))
+            try:
+                summary = summarizer.summarize_chapter(path, changes_text)
+                chapter_summaries.append((path, summary))
+                log.debug("    -> %s", summary[:120])
+            except Exception as exc:
+                log.warning("  [%d/%d] LLM call failed for '%s': %s",
+                            idx + 1, total, path, exc)
+                failed += 1
+                # 退化为纯统计摘要
+                chapter_summaries.append((
+                    path,
+                    f"*(LLM 调用失败, 共 {len(changes_text.splitlines())} 条变更)*"
+                ))
+                continue
+            # 限流间隔
+            if idx < total - 1:
+                time.sleep(0.2)
+
+        log.info("  chapter summaries done: %d success, %d failed", total - failed, failed)
+
+        # 生成总览摘要
+        log.info("  generating executive summary from %d chapter summaries ...",
+                 len(chapter_summaries))
+        try:
+            meta_for_summary = {
+                "name": args.name,
+                "oldVersion": old_ver,
+                "newVersion": new_ver,
+                "generatedAt": _now_str(),
+            }
+            executive = summarizer.generate_executive_summary(
+                chapter_summaries, old_ver, new_ver, args.name)
+        except Exception as exc:
+            log.warning("  executive summary failed: %s", exc)
+            executive = f"*(总览摘要生成失败: {exc})*"
+
+        _write_summary_files(chapter_summaries, executive, meta_for_summary, data_dir)
+        t_summary = time.time()
+        log.info("summary generated in %.1fs", t_summary - t3)
+        t3 = t_summary
+
     t4 = time.time()
     log.info("report written in %.1fs total", t4 - t0)
     print(f"OK: report generated in {out_dir}")
     print(f"    Open {out_dir / 'index.html'} in a browser to view.")
+    if args.summary:
+        print(f"    AI Summary: {out_dir / 'data' / 'summary.md'}")
     return 0
 
 
