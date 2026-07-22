@@ -6,8 +6,10 @@
   --old DIR|FILE     旧版本数据: 已解析的章节 JSON (字段 titleStr / path / html),
                      可以是目录 (递归载入其中所有 .json) 或单个 .json 文件。
   --new DIR|FILE     新版本数据, 同上。
-  --hedex DIR        解压后的 hedex 资源目录, html 内 "${URL_PREFIX}//resources//xxx"
-                     引用都从这里解析。
+  --hedex DIR        解压后的 hedex 资源目录, 旧新版本公用时的默认值
+  --hedex-old DIR     旧版本 hedex 资源目录 (不指定则用 --hedex)
+  --hedex-new DIR     新版本 hedex 资源目录 (不指定则用 --hedex)
+  --no-images         跳过图片块解析和资源拷贝, 报告中不展示图片
   --out-dir DIR      报告输出目录 (默认 output/); 模板(report/)+数据+图片都拷进去。
   --filter FILE      过滤配置 JSON (path/heading 黑/白名单; 命中的层级仅展示不对比)。
   --log-level LVL    DEBUG / INFO / WARN (默认 INFO)。
@@ -484,22 +486,22 @@ def _html_equal(a: str, b: str) -> bool:
 
 def _worker_parse_chapter(args):
     """Worker: 纯 CPU 的段落解析 + diff, 返回 (node_id, paras). 用于多进程并行."""
-    node_id, old_html, new_html, has_old, has_new, pid_prefix, node_status, filter_cfg = args
+    node_id, old_html, new_html, has_old, has_new, pid_prefix, node_status, filter_cfg, no_images = args
     heading_filter = Filter(filter_cfg) if filter_cfg else None
     # path 过滤命中 → 全部段落标记为 skip, 不运行 diff
     if node_status == "skip":
         source_html = new_html if has_new else old_html
-        blocks = parse_blocks(source_html)
+        blocks = parse_blocks(source_html, no_images=no_images)
         paras = [_mk_skip(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(blocks)]
         return (node_id, paras)
     if has_old and has_new:
-        old_blocks = parse_blocks(old_html)
-        new_blocks = parse_blocks(new_html)
+        old_blocks = parse_blocks(old_html, no_images=no_images)
+        new_blocks = parse_blocks(new_html, no_images=no_images)
         paras = diff_blocks(old_blocks, new_blocks, pid_prefix=pid_prefix, heading_filter=heading_filter)
     elif has_old:
-        paras = [_mk_del(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(old_html))]
+        paras = [_mk_del(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(old_html, no_images=no_images))]
     elif has_new:
-        paras = [_mk_add(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(new_html))]
+        paras = [_mk_add(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(new_html, no_images=no_images))]
     else:
         paras = []
     return (node_id, paras)
@@ -517,17 +519,17 @@ def _filter_to_cfg(filter_obj):
     }
 
 
-def _resolve_images_in_paras(paras, resolver):
+def _resolve_images_in_paras(paras, resolver_old, resolver_new):
     """处理图片 url 替换 + 计算 old/new hash (需文件 I/O, 串行执行)."""
     for p in paras:
         if p.get("type") == "image":
             old = p.get("oldImage"); new = p.get("newImage")
             if old:
-                p["oldImage"] = resolver.resolve_src(old)
-                h = resolver.sha1_of(old); p["oldHash"] = h or p["oldHash"] or ""
+                p["oldImage"] = resolver_old.resolve_src(old)
+                h = resolver_old.sha1_of(old); p["oldHash"] = h or p["oldHash"] or ""
             if new:
-                p["newImage"] = resolver.resolve_src(new)
-                h = resolver.sha1_of(new); p["newHash"] = h or p["newHash"] or ""
+                p["newImage"] = resolver_new.resolve_src(new)
+                h = resolver_new.sha1_of(new); p["newHash"] = h or p["newHash"] or ""
     return paras
 
 
@@ -572,8 +574,11 @@ def _serialize(el):
         return ""
 
 
-def parse_blocks(html_str: str):
-    """解析章节 html 字符串, 抽取段落块列表 (按文档顺序)."""
+def parse_blocks(html_str: str, no_images: bool = False):
+    """解析章节 html 字符串, 抽取段落块列表 (按文档顺序).
+
+    no_images=True 时跳过所有图片块 (不生成 image 类型的 Block).
+    """
     if not html_str:
         return []
     try:
@@ -587,7 +592,7 @@ def parse_blocks(html_str: str):
         body = doc
     blocks = []
     for child in list(body):
-        blocks.extend(_walk_el(child, depth=0))
+        blocks.extend(_walk_el(child, depth=0, no_images=no_images))
     if not blocks and _text_of(doc).strip():
         blocks = [Block("text", html=f'<p class="diff-p">{html_escape(_text_of(doc))}</p>',
                         title=_text_of(doc)[:20])]
@@ -644,8 +649,11 @@ def _emit_inline_prefix_block(el, result_list):
             title=text[:24] or "段落"))
 
 
-def _walk_el(el, depth=0, max_depth=8):
-    """递归把 HTML 元素映射为 Block; 仅在 multi-content (div 包含若干) 时展开."""
+def _walk_el(el, depth=0, max_depth=8, no_images=False):
+    """递归把 HTML 元素映射为 Block; 仅在 multi-content (div 包含若干) 时展开.
+
+    no_images=True 时跳过 <img> 标签和仅有图片的 div.
+    """
     if depth > max_depth:
         return []
     # 跳过注释和 PI 节点 (lxml HtmlComment.tag 是 callable, 不是 str)
@@ -688,7 +696,7 @@ def _walk_el(el, depth=0, max_depth=8):
             for i, c in enumerate(list(el)):
                 if first_block is not None and i < first_block:
                     continue  # 已作为内联前缀处理
-                sub.extend(_walk_el(c, depth+1, max_depth))
+                sub.extend(_walk_el(c, depth+1, max_depth, no_images=no_images))
             return sub
         # 即使没有直接文字子块, 也要检查深层后代是否包含文字元素.
         # 例如: <div class="topicbody"><div class="section"><h3>...</h3></div></div>
@@ -700,12 +708,13 @@ def _walk_el(el, depth=0, max_depth=8):
             for i, c in enumerate(list(el)):
                 if first_block is not None and i < first_block:
                     continue  # 已作为内联前缀处理
-                sub.extend(_walk_el(c, depth+1, max_depth))
+                sub.extend(_walk_el(c, depth+1, max_depth, no_images=no_images))
             return sub
-        # div 仅有图片无文字子块 → 纯图片块
-        imgs = el.xpath('.//img')
-        if imgs:
-            return [_make_image_block(el, imgs)]
+        # div 仅有图片无文字子块 → 纯图片块 (no_images 时跳过)
+        if not no_images:
+            imgs = el.xpath('.//img')
+            if imgs:
+                return [_make_image_block(el, imgs)]
         # 纯 div 文本兜底
         if _text_of(el).strip():
             return [Block("text", html=f'<p class="diff-p">{_inner_html(el)}</p>',
@@ -713,6 +722,8 @@ def _walk_el(el, depth=0, max_depth=8):
         return []
 
     if tag == "img":
+        if no_images:
+            return []
         return [_make_image_block(el, [el])]
 
     if tag in ("br", "hr", "script", "style", "noscript", "meta", "link"):
@@ -721,7 +732,7 @@ def _walk_el(el, depth=0, max_depth=8):
     # 其他元素 -> 展开向下递归
     sub = []
     for c in list(el):
-        sub.extend(_walk_el(c, depth+1, max_depth))
+        sub.extend(_walk_el(c, depth+1, max_depth, no_images=no_images))
     if not sub and _text_of(el).strip():
         sub = [Block("text", html=f'<p class="diff-p">{html_escape(_text_of(el))}</p>',
                      title=_text_of(el)[:24])]
@@ -1250,13 +1261,16 @@ def _node_visible(node):
     return bool(node.id) or any(_node_visible(c) for c in node.children)
 
 
-def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver, heading_filter=None):
+def collect_paragraphs(node: ChapterNode, resolvers, heading_filter=None, no_images=False):
     """根据 old/new entry 解析并 diff 段落, 复用到 dict node.id -> [block dictionaries].
 
     pid 前缀用本节点 id (e.g. 'ch1-1-1'), 输出 `<cid>-p<seq>`,
     保证跨章节唯一, 避免前端 findChapterIdOfParagraph 误中并列章节.
     heading_filter 应用到本节点的所有段落.
+    resolvers 为 (resolver_old, resolver_new) 元组.
+    no_images=True 时跳过图片块解析和资源拷贝.
     """
+    resolver_old, resolver_new = resolvers
     old_e = node.old_entry
     new_e = node.new_entry
     if not old_e and not new_e:
@@ -1265,13 +1279,13 @@ def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver, heading_
     has_new = bool(node.new_entry)
     pid_prefix = node.id or "ch"
     if has_old and has_new:
-        old_blocks = parse_blocks(old_e["html"])
-        new_blocks = parse_blocks(new_e["html"])
+        old_blocks = parse_blocks(old_e["html"], no_images=no_images)
+        new_blocks = parse_blocks(new_e["html"], no_images=no_images)
         paras = diff_blocks(old_blocks, new_blocks, pid_prefix=pid_prefix, heading_filter=heading_filter)
     elif has_old:
-        paras = [_mk_del(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(old_e["html"]))]
+        paras = [_mk_del(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(old_e["html"], no_images=no_images))]
     elif has_new:
-        paras = [_mk_add(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(new_e["html"]))]
+        paras = [_mk_add(b, f"{pid_prefix}-p{i+1}") for i, b in enumerate(parse_blocks(new_e["html"], no_images=no_images))]
     else:
         paras = []
 
@@ -1280,22 +1294,27 @@ def collect_paragraphs(node: ChapterNode, resolver: AssetImageResolver, heading_
         if p.get("type") == "image":
             old = p.get("oldImage"); new = p.get("newImage")
             if old:
-                p["oldImage"] = resolver.resolve_src(old)
-                h = resolver.sha1_of(old); p["oldHash"] = h or p["oldHash"] or ""
+                p["oldImage"] = resolver_old.resolve_src(old)
+                h = resolver_old.sha1_of(old); p["oldHash"] = h or p["oldHash"] or ""
             if new:
-                p["newImage"] = resolver.resolve_src(new)
-                h = resolver.sha1_of(new); p["newHash"] = h or p["newHash"] or ""
+                p["newImage"] = resolver_new.resolve_src(new)
+                h = resolver_new.sha1_of(new); p["newHash"] = h or p["newHash"] or ""
     return paras
 
 
-def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None, workers=1):
+def collect_all_paragraphs(root: ChapterNode, resolvers, filter_obj=None, workers=1, no_images=False):
     """收集所有叶子章节的段落 diff.
 
     流程:
       1. 遍历树收集任务列表 (提取 html, 释放 entry 内存)
       2. 并行 (workers>1) 或串行 CPU 解析 + diff
       3. 串行处理图片资源 (文件 I/O)
+
+    resolvers 为 (resolver_old, resolver_new) 元组, 分别用于解析旧/新版本的图片引用.
+    no_images=True 时跳过图片块解析和资源拷贝, 报告中不展示图片.
     """
+    resolver_old, resolver_new = resolvers
+
     # 阶段 1: 收集任务, 同时释放 entry html
     log.info("  gathering chapter tasks ...")
     tasks, node_refs = _gather_chapter_tasks(root)
@@ -1316,7 +1335,7 @@ def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None, workers
         log.info("  using %d parallel workers ...", workers)
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(_worker_parse_chapter, (*t, filter_cfg)): t[0]
+                pool.submit(_worker_parse_chapter, (*t, filter_cfg, no_images)): t[0]
                 for t in tasks
             }
             for future in as_completed(futures):
@@ -1337,7 +1356,7 @@ def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None, workers
     else:
         # 串行路径 (原有行为)
         for task in tasks:
-            node_id, paras = _worker_parse_chapter((*task, filter_cfg))
+            node_id, paras = _worker_parse_chapter((*task, filter_cfg, no_images))
             if paras is not None:
                 out[node_id] = paras
             done += 1
@@ -1353,10 +1372,10 @@ def collect_all_paragraphs(root: ChapterNode, resolver, filter_obj=None, workers
                 next_report_time = now + 30
 
     # 阶段 3: 串行处理图片资源 (文件复制不能多进程并发)
-    if any(p.get("type") == "image" for ps in out.values() for p in ps):
+    if not no_images and any(p.get("type") == "image" for ps in out.values() for p in ps):
         log.info("  resolving image resources ...")
         for paras in out.values():
-            _resolve_images_in_paras(paras, resolver)
+            _resolve_images_in_paras(paras, resolver_old, resolver_new)
     return out
 
 
@@ -1503,7 +1522,13 @@ def main(argv=None):
     p.add_argument("--old", required=True, help="旧版本 JSON (文件或目录)")
     p.add_argument("--new", required=True, help="新版本 JSON (文件或目录)")
     p.add_argument("--hedex", default="data/parse/hedex",
-                   help="解压后的 hedex 目录 (含 resources/)")
+                   help="解压后的 hedex 资源目录 (含 resources/), 旧新版本公用时的默认值")
+    p.add_argument("--hedex-old", default=None,
+                   help="旧版本 hedex 资源目录, 不指定则用 --hedex")
+    p.add_argument("--hedex-new", default=None,
+                   help="新版本 hedex 资源目录, 不指定则用 --hedex")
+    p.add_argument("--no-images", action="store_true", default=False,
+                   help="跳过图片块解析和资源拷贝, 报告中不展示图片")
     p.add_argument("--out-dir", default=None,
                    help="报告输出目录 (默认 output/report-<timestamp>/); 拷入模板+数据+图片")
     p.add_argument("--filter", default=None,
@@ -1573,10 +1598,14 @@ def main(argv=None):
     if filter_obj.active:
         _apply_path_filter(root, filter_obj)
 
-    # 资源解析器
-    hedex_dir = (repo / args.hedex) if not Path(args.hedex).is_absolute() else Path(args.hedex)
+    # 资源解析器 (旧/新版本可分别指定 hedex 目录)
+    hedex_old = args.hedex_old or args.hedex
+    hedex_new = args.hedex_new or args.hedex
+    hedex_old_dir = (repo / hedex_old) if not Path(hedex_old).is_absolute() else Path(hedex_old)
+    hedex_new_dir = (repo / hedex_new) if not Path(hedex_new).is_absolute() else Path(hedex_new)
     assets_dir = out_dir / "assets" / "images" / "hedex"
-    resolver = AssetImageResolver(hedex_dir, assets_dir)
+    resolver_old = AssetImageResolver(hedex_old_dir, assets_dir)
+    resolver_new = AssetImageResolver(hedex_new_dir, assets_dir)
 
     # 确定 workers 数量
     n_workers = args.workers
@@ -1585,8 +1614,8 @@ def main(argv=None):
 
     chapters = [render_tree(c) for c in root.children if _node_visible(c)]
     log.info("collecting paragraphs & diff for %d visible chapters ...", len(chapters))
-    paragraphs_by_chapter = collect_all_paragraphs(root, resolver, filter_obj=filter_obj,
-                                                    workers=n_workers)
+    paragraphs_by_chapter = collect_all_paragraphs(root, (resolver_old, resolver_new), filter_obj=filter_obj,
+                                                    workers=n_workers, no_images=args.no_images)
     t2 = time.time()
     log.info("paragraphs collected in %.1fs (%d leaf chapters)", t2 - t1, len(paragraphs_by_chapter))
     stats = calc_stats(root)
