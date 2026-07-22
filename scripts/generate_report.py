@@ -637,6 +637,8 @@ def _emit_inline_prefix_block(el, result_list):
     prefix = _collect_inline_prefix(el)
     if prefix:
         text = re.sub(r'<[^>]+>', '', prefix).strip()
+        if not text:
+            return  # 去掉标签后无可视文本 → 跳过 (纯 anchor/空标签)
         result_list.append(Block("text",
             html=f'<p class="diff-p">{prefix}</p>',
             title=text[:24] or "段落"))
