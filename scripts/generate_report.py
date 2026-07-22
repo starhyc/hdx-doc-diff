@@ -596,6 +596,42 @@ def _has_text_descendant(el):
     return False
 
 
+# 块级标签: 在收集 div 内联前缀时, 这些标签作为内联/块级的分界线
+_BLOCK_TAGS = {"p", "table", "ul", "ol", "div"} | set(HEADING_TAGS.keys())
+
+
+def _first_block_child_index(el):
+    """返回第一个块级子元素索引 (div/p/table/ul/ol/heading), 若无则返回 None."""
+    for i, c in enumerate(list(el)):
+        if _tag(c) in _BLOCK_TAGS:
+            return i
+    return None
+
+
+def _collect_inline_prefix(el):
+    """收集 div 中第一个块级子元素之前的全部内联内容 (直接文本 + 内联子元素 + tail).
+    返回内联 HTML 字符串, 无内容时返回空字符串."""
+    first_block = _first_block_child_index(el)
+    children = list(el)
+    inline_children = children[:first_block] if first_block is not None else children
+    parts = [el.text or ""]
+    for c in inline_children:
+        parts.append(etree.tostring(c, encoding="unicode", with_tail=False))
+        if c.tail:
+            parts.append(c.tail)
+    return "".join(parts).strip()
+
+
+def _emit_inline_prefix_block(el, result_list):
+    """若 div 的第一个块级子元素前有内联内容, 将其作为 Block('text') 输出."""
+    prefix = _collect_inline_prefix(el)
+    if prefix:
+        text = re.sub(r'<[^>]+>', '', prefix).strip()
+        result_list.append(Block("text",
+            html=f'<p class="diff-p">{prefix}</p>',
+            title=text[:24] or "段落"))
+
+
 def _walk_el(el, depth=0, max_depth=8):
     """递归把 HTML 元素映射为 Block; 仅在 multi-content (div 包含若干) 时展开."""
     if depth > max_depth:
@@ -633,8 +669,13 @@ def _walk_el(el, depth=0, max_depth=8):
         text_children = [c for c in el if _tag(c) in ("p", "table", "ul", "ol") or _tag(c) in HEADING_TAGS]
         if text_children:
             # 有文字子块 → 展开递归 (嵌套 img 也会被 _walk_el 递归到)
+            # 先收集第一个块级子元素前的内联内容 (避免直接文本/内联子元素被吞掉)
             sub = []
-            for c in list(el):
+            _emit_inline_prefix_block(el, sub)
+            first_block = _first_block_child_index(el)
+            for i, c in enumerate(list(el)):
+                if first_block is not None and i < first_block:
+                    continue  # 已作为内联前缀处理
                 sub.extend(_walk_el(c, depth+1, max_depth))
             return sub
         # 即使没有直接文字子块, 也要检查深层后代是否包含文字元素.
@@ -642,7 +683,11 @@ def _walk_el(el, depth=0, max_depth=8):
         # 如果不递归, h3 会被下面的 image fallback 或 text fallback 吞掉.
         if _has_text_descendant(el):
             sub = []
-            for c in list(el):
+            _emit_inline_prefix_block(el, sub)
+            first_block = _first_block_child_index(el)
+            for i, c in enumerate(list(el)):
+                if first_block is not None and i < first_block:
+                    continue  # 已作为内联前缀处理
                 sub.extend(_walk_el(c, depth+1, max_depth))
             return sub
         # div 仅有图片无文字子块 → 纯图片块
