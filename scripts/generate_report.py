@@ -43,7 +43,6 @@ import json
 import logging
 import os
 import re
-import requests
 import shutil
 import sys
 import time
@@ -51,6 +50,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from html import escape as html_escape, unescape as html_unescape
 from pathlib import Path
 from lxml import etree, html as lxml_html
+from openai import OpenAI
 
 # ----------------------------- 日志 -----------------------------
 
@@ -1519,39 +1519,94 @@ def _write_paragraph_files(paragraphs_by_chapter: dict, paragraphs_dir: Path):
 
 # ----------------------------- AI 变更摘要 -----------------------------
 
-# 摘要系统提示词 (中文, 面向 5G RAN 技术文档)
-_SUMMARY_SYSTEM_PROMPT = """\
-你是一份技术文档版本对比报告的 AI 摘要助手。请根据提供的变更列表，用简洁的中文概括该章节从旧版本到新版本的主要变化。
+# 内建默认提示词 (仅当配置文件未提供时使用)
+_DEFAULT_PROMPTS = {
+    "chapter_summary": (
+        "你是一份技术文档版本对比报告的 AI 摘要助手。请根据提供的变更列表，用简洁的中文概括该章节从旧版本到新版本的主要变化。\n\n"
+        "要求：\n"
+        "1. 关注实质性内容变化（新增/删除/修改的功能、参数、流程、配置等），忽略纯格式变化。\n"
+        "2. 按重要性排序，最重要的变化放在前面。\n"
+        "3. 使用 2-5 条要点概括，每条不超过 100 字。\n"
+        "4. 如果变更很多，只挑最重要的 5 条。\n"
+        '5. 仅在完全没有实质性变更时才输出"无实质性变更"。'
+    ),
+    "executive_summary": (
+        "你是一份技术文档版本对比报告的总览摘要助手。以下是各章节的变更摘要，请生成一份总览摘要（Executive Summary）。\n\n"
+        "要求：\n"
+        "1. 开头用一段话概述本次文档更新的整体情况（50-100 字）。\n"
+        "2. 然后列出最重要的 5-10 条跨章节的关键变更，按重要性排序。\n"
+        "3. 每条标注涉及的章节名称。\n"
+        "4. 使用中文。"
+    ),
+    "chunk_merge": (
+        "以下是一份技术文档某个章节各部分的变更摘要，请合并为一份完整的章节摘要。\n"
+        "按重要性排序，用 2-5 条要点概括，每条不超过 100 字。"
+    ),
+}
 
-要求：
-1. 关注实质性内容变化（新增/删除/修改的功能、参数、流程、配置等），忽略纯格式变化。
-2. 按重要性排序，最重要的变化放在前面。
-3. 使用 2-5 条要点概括，每条不超过 100 字。
-4. 如果变更很多，只挑最重要的 5 条。
-5. 仅在完全没有实质性变更时才输出"无实质性变更"。"""
 
-_EXECUTIVE_SYSTEM_PROMPT = """\
-你是一份技术文档版本对比报告的总览摘要助手。以下是各章节的变更摘要，请生成一份总览摘要（Executive Summary）。
+def load_summary_config(config_path=None):
+    """加载摘要配置文件 (JSON), 返回配置 dict.
 
-要求：
-1. 开头用一段话概述本次文档更新的整体情况（50-100 字）。
-2. 然后列出最重要的 5-10 条跨章节的关键变更，按重要性排序。
-3. 每条标注涉及的章节名称。
-4. 使用中文。"""
+    config_path 为 None 或文件不存在时返回内置默认值.
+    支持通过环境变量 SUMMARY_API_KEY 覆盖 api_key.
+    """
+    defaults = {
+        "model": "gpt-4o-mini",
+        "api_base": "https://api.openai.com/v1",
+        "api_key": "",
+        "temperature": 0.3,
+        "max_chars_per_chunk": 12000,
+        "prompts": dict(_DEFAULT_PROMPTS),
+    }
+    if config_path:
+        cfg_file = Path(config_path)
+        if cfg_file.exists():
+            try:
+                user_cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+                _deep_merge(defaults, user_cfg)
+            except (json.JSONDecodeError, OSError) as exc:
+                log.warning("failed to load summary config %s: %s, using defaults",
+                            config_path, exc)
+    # 环境变量覆盖 api_key
+    env_key = os.environ.get("SUMMARY_API_KEY", "")
+    if env_key and not defaults["api_key"]:
+        defaults["api_key"] = env_key
+    # 合并 prompts: 确保所有 key 存在, 配置文件可部分覆盖
+    if "prompts" in defaults:
+        for k in _DEFAULT_PROMPTS:
+            if k not in defaults["prompts"]:
+                defaults["prompts"][k] = _DEFAULT_PROMPTS[k]
+    return defaults
+
+
+def _deep_merge(base, override):
+    """递归合并 override 到 base (原地修改)."""
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep_merge(base[k], v)
+        else:
+            base[k] = v
 
 
 class ChangeSummarizer:
-    """基于 OpenAI 兼容 API 的文档变更 AI 摘要器.
+    """基于 OpenAI SDK 的文档变更 AI 摘要器.
 
     对每个有变更的章节提取纯文本变更列表, 调用 LLM 生成章节级摘要,
     最后汇总为文档级总览摘要.
+
+    配置参数从 summary-config.json 加载, CLI 参数可覆盖其中部分字段.
     """
 
-    def __init__(self, api_base, api_key, model, max_chars_per_chunk=12000):
-        self.api_base = api_base.rstrip("/")
-        self.api_key = api_key
-        self.model = model
-        self.max_chars_per_chunk = max_chars_per_chunk
+    def __init__(self, config):
+        self.model = config["model"]
+        self.temperature = config.get("temperature", 0.3)
+        self.max_chars_per_chunk = config.get("max_chars_per_chunk", 12000)
+        self.prompts = config.get("prompts", dict(_DEFAULT_PROMPTS))
+        self._client = OpenAI(
+            base_url=config["api_base"],
+            api_key=config["api_key"],
+        )
 
     # ---- 章节路径映射 ----
 
@@ -1604,7 +1659,6 @@ class ChangeSummarizer:
             title = (p.get("title") or "")[:80]
 
             if ptype == "image":
-                # 图片块: 用 caption + 文件名描述变更
                 if status == "add":
                     label = "[新增]"
                     content = f"图片: {p.get('newImage', '')}\n说明: {p.get('newCaption', '')}"
@@ -1628,7 +1682,7 @@ class ChangeSummarizer:
                 old_text = self._strip_html(p.get("oldHtml", ""))
                 new_text = self._strip_html(p.get("newHtml", ""))
                 if old_text == new_text:
-                    continue  # 纯标签差异, 跳过
+                    continue
                 content = f"旧: {old_text}\n    新: {new_text}"
             else:
                 continue
@@ -1638,7 +1692,6 @@ class ChangeSummarizer:
             header = f"{label} {tlabel}{heading_lvl}: {title}" if title else f"{label} {tlabel}"
             lines.append(header)
             if content and content.strip():
-                # 限制单段长度
                 truncated = content[:600]
                 if len(content) > 600:
                     truncated += f"...(截断, 原文 {len(content)} 字)"
@@ -1650,38 +1703,26 @@ class ChangeSummarizer:
         """从 HTML 提取纯文本: 去掉 diff span 包装 -> 去掉所有标签 -> 解实体 -> 归一化空白."""
         if not html_str:
             return ""
-        # 先去掉 diff span (保留内部文本)
         text = re.sub(r'<span class="(?:add|del)">', "", html_str)
         text = re.sub(r"</span>", "", text)
-        # 去掉所有 HTML 标签
         text = re.sub(r"<[^>]+>", " ", text)
-        # 解码 HTML 实体
         text = html_unescape(text)
-        # 归一化空白
         text = re.sub(r"\s+", " ", text).strip()
         return text
 
     # ---- LLM 调用 ----
 
-    def call_llm(self, system_prompt, user_content, temperature=0.3):
-        """调用 OpenAI 兼容的 chat/completions API, 返回 assistant 文本."""
-        url = f"{self.api_base}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [
+    def _call_llm(self, system_prompt, user_content):
+        """通过 OpenAI SDK 调用 chat/completions, 返回 assistant 文本."""
+        resp = self._client.chat.completions.create(
+            model=self.model,
+            messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            "temperature": temperature,
-        }
-        resp = requests.post(url, json=payload, headers=headers, timeout=180)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+            temperature=self.temperature,
+        )
+        return resp.choices[0].message.content
 
     # ---- 章节摘要 (支持超长章节自动分片) ----
 
@@ -1694,32 +1735,26 @@ class ChangeSummarizer:
 
         if len(chunks) == 1:
             user = f"章节路径: {chapter_path}\n\n变更列表:\n{changes_text}"
-            return self.call_llm(_SUMMARY_SYSTEM_PROMPT, user)
+            return self._call_llm(self.prompts["chapter_summary"], user)
 
         log.info("    chapter split into %d chunks: %s", len(chunks), chapter_path)
         chunk_summaries = []
         for i, chunk in enumerate(chunks):
             user = f"章节路径: {chapter_path} (部分 {i + 1}/{len(chunks)})\n\n变更列表:\n{chunk}"
             chunk_summaries.append(
-                self.call_llm(_SUMMARY_SYSTEM_PROMPT, user))
-            time.sleep(0.3)  # 限流间隔
+                self._call_llm(self.prompts["chapter_summary"], user))
+            time.sleep(0.3)
 
-        # 合并各分片摘要
         combined = "\n\n---\n\n".join(
             f"部分 {j + 1} 摘要:\n{s}"
             for j, s in enumerate(chunk_summaries))
-        combine_prompt = (
-            "以下是一份技术文档某个章节各部分的变更摘要，请合并为一份完整的章节摘要。\n"
-            "按重要性排序，用 2-5 条要点概括，每条不超过 100 字。"
-        )
-        return self.call_llm(combine_prompt, combined)
+        return self._call_llm(self.prompts.get("chunk_merge", _DEFAULT_PROMPTS["chunk_merge"]), combined)
 
     def _split_changes(self, changes_text):
         """将变更文本按 heading 边界分片, 使每片不超过 max_chars_per_chunk."""
         if len(changes_text) <= self.max_chars_per_chunk:
             return [changes_text]
 
-        # 按 [新增/删除/修改] 标题: 分界
         sections = re.split(
             r"\n(?=\[(?:新增|删除|修改)\] 标题(?:\d|H))", changes_text)
 
@@ -1743,7 +1778,6 @@ class ChangeSummarizer:
         if not chapter_summaries:
             return "未检测到任何实质性变更。"
 
-        # 构造紧凑的摘要列表
         parts = []
         for i, (path, summary) in enumerate(chapter_summaries):
             parts.append(f"### {i + 1}. {path}\n{summary}")
@@ -1756,9 +1790,7 @@ class ChangeSummarizer:
             f"各章节变更摘要:\n\n{all_text}"
         )
 
-        # 如果总内容超限, 只取前 N 条最重要的摘要
         if len(all_text) > self.max_chars_per_chunk * 2:
-            # 按摘要长度粗略评估重要性 (更长可能更重要), 取前 30 条
             top_n = min(30, len(chapter_summaries))
             parts = []
             for i, (path, summary) in enumerate(chapter_summaries[:top_n]):
@@ -1773,14 +1805,13 @@ class ChangeSummarizer:
                 f"各章节变更摘要:\n\n{all_text}"
             )
 
-        return self.call_llm(_EXECUTIVE_SYSTEM_PROMPT, user)
+        return self._call_llm(self.prompts["executive_summary"], user)
 
 
 def _write_summary_files(chapter_summaries, executive_summary, meta, out_dir):
     """将 AI 摘要写入 summary.md 和 summary.json."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Markdown
     md_path = out_dir / "summary.md"
     lines = [
         f"# {meta.get('name', '文档版本对比')} - AI 变更摘要",
@@ -1807,7 +1838,6 @@ def _write_summary_files(chapter_summaries, executive_summary, meta, out_dir):
     md_path.write_text("\n".join(lines), encoding="utf-8")
     log.info("summary markdown written to %s", md_path)
 
-    # JSON
     json_path = out_dir / "summary.json"
     json_data = {
         "meta": {
@@ -1856,15 +1886,17 @@ def main(argv=None):
     p.add_argument("--new-version", default=None,
                    help="新版本标签 (默认从 path 自动嗅探)")
     p.add_argument("--summary", action="store_true", default=False,
-                   help="启用 AI 变更摘要 (需同时提供 --summary-api-key)")
-    p.add_argument("--summary-model", default="gpt-4o-mini",
-                   help="摘要使用的 LLM 模型名 (默认 gpt-4o-mini)")
-    p.add_argument("--summary-api-base", default="https://api.openai.com/v1",
-                   help="OpenAI 兼容 API 地址 (默认 https://api.openai.com/v1)")
+                   help="启用 AI 变更摘要 (需在配置文件中提供 api_key, 或通过环境变量 SUMMARY_API_KEY 传入)")
+    p.add_argument("--summary-config", default=None,
+                   help="摘要配置文件路径 (JSON); 默认从 data/summary-config.json 加载, 不指定或不存在则使用内置默认值")
+    p.add_argument("--summary-model", default=None,
+                   help="覆盖配置文件中的 LLM 模型名")
+    p.add_argument("--summary-api-base", default=None,
+                   help="覆盖配置文件中的 API 地址")
     p.add_argument("--summary-api-key", default="",
-                   help="API Key; 也可通过环境变量 SUMMARY_API_KEY 传入")
-    p.add_argument("--summary-max-chars", default=12000, type=int,
-                   help="单次 LLM 调用的最大变更文本字符数 (默认 12000)")
+                   help="覆盖配置文件中的 API Key")
+    p.add_argument("--summary-max-chars", default=None, type=int,
+                   help="覆盖配置文件中的单次 LLM 调用最大字符数")
     args = p.parse_args(argv)
 
     setup_logging(args.log_level)
@@ -1977,18 +2009,28 @@ def main(argv=None):
 
     # ---- AI 变更摘要 ----
     if args.summary:
-        api_key = args.summary_api_key or os.environ.get("SUMMARY_API_KEY", "")
-        if not api_key:
-            log.error("--summary requires an API key (--summary-api-key or SUMMARY_API_KEY env)")
+        # 加载配置 (CLI 参数优先于配置文件)
+        config_path = args.summary_config
+        if not config_path:
+            default_cfg = Path(__file__).resolve().parent.parent / "data" / "summary-config.json"
+            if default_cfg.exists():
+                config_path = str(default_cfg)
+        config = load_summary_config(config_path)
+        # CLI 参数覆盖配置文件
+        if args.summary_model:
+            config["model"] = args.summary_model
+        if args.summary_api_base:
+            config["api_base"] = args.summary_api_base
+        if args.summary_api_key:
+            config["api_key"] = args.summary_api_key
+        if args.summary_max_chars is not None:
+            config["max_chars_per_chunk"] = args.summary_max_chars
+        if not config.get("api_key"):
+            log.error("--summary requires an API key (set api_key in config, --summary-api-key, or SUMMARY_API_KEY env)")
             return 3
-        log.info("generating AI change summary (model=%s, max_chars=%d) ...",
-                 args.summary_model, args.summary_max_chars)
-        summarizer = ChangeSummarizer(
-            api_base=args.summary_api_base,
-            api_key=api_key,
-            model=args.summary_model,
-            max_chars_per_chunk=args.summary_max_chars,
-        )
+        log.info("generating AI change summary (model=%s, api_base=%s, max_chars=%d) ...",
+                 config["model"], config["api_base"], config["max_chars_per_chunk"])
+        summarizer = ChangeSummarizer(config)
         path_map = summarizer.build_chapter_path_map(root)
         chapter_changes = summarizer.extract_chapter_changes(paragraphs_by_chapter, path_map)
         total = len(chapter_changes)
