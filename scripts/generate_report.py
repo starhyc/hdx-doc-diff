@@ -47,7 +47,7 @@ import requests
 import shutil
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from html import escape as html_escape, unescape as html_unescape
 from pathlib import Path
 from lxml import etree, html as lxml_html
@@ -1557,6 +1557,7 @@ def load_summary_config(config_path=None):
         "api_key": "",
         "temperature": 0.3,
         "max_chars_per_chunk": 12000,
+        "max_workers": 5,
         "timeout": 180,
         "prompts": dict(_DEFAULT_PROMPTS),
     }
@@ -1933,6 +1934,8 @@ def main(argv=None):
                    help="覆盖配置文件中的 API Key")
     p.add_argument("--summary-max-chars", default=None, type=int,
                    help="覆盖配置文件中的单次 LLM 调用最大字符数")
+    p.add_argument("--summary-workers", default=None, type=int,
+                   help="并行的 LLM 调用并发数 (默认 5, 即同时最多 5 个章节并行摘要)")
     args = p.parse_args(argv)
 
     setup_logging(args.log_level)
@@ -2061,6 +2064,8 @@ def main(argv=None):
             config["api_key"] = args.summary_api_key
         if args.summary_max_chars is not None:
             config["max_chars_per_chunk"] = args.summary_max_chars
+        if args.summary_workers is not None:
+            config["max_workers"] = args.summary_workers
         if not config.get("api_key"):
             log.error("--summary requires an API key (set api_key in config, --summary-api-key, or SUMMARY_API_KEY env)")
             return 3
@@ -2074,26 +2079,43 @@ def main(argv=None):
 
         chapter_summaries = []
         failed = 0
-        for idx, (cid, path, changes_text) in enumerate(chapter_changes):
-            log.info("  [%d/%d] summarizing: %s (%d chars)",
-                     idx + 1, total, path, len(changes_text))
+        max_workers = config.get("max_workers", 5)
+        total = len(chapter_changes)
+        log.info("  submitting %d chapter summary tasks (max_workers=%d) ...",
+                 total, max_workers)
+
+        def _summarize_one(idx_path_text):
+            """单个章节摘要任务, 返回 (index, path, summary, error)."""
+            idx, path, changes_text = idx_path_text
             try:
                 summary = summarizer.summarize_chapter(path, changes_text)
-                chapter_summaries.append((path, summary))
-                log.debug("    -> %s", summary[:120])
+                return (idx, path, summary, None)
             except Exception as exc:
                 log.warning("  [%d/%d] LLM call failed for '%s': %s",
                             idx + 1, total, path, exc)
-                failed += 1
-                # 退化为纯统计摘要
-                chapter_summaries.append((
-                    path,
-                    f"*(LLM 调用失败, 共 {len(changes_text.splitlines())} 条变更)*"
-                ))
-                continue
-            # 限流间隔
-            if idx < total - 1:
-                time.sleep(0.2)
+                fallback = (f"*(LLM 调用失败, 共 {len(changes_text.splitlines())} 条变更)*")
+                return (idx, path, fallback, str(exc))
+
+        # Build indexed task list for ordering preservation
+        indexed_tasks = [(i, path, text) for i, (cid, path, text) in enumerate(chapter_changes)]
+
+        results = {}  # index -> (path, summary)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_summarize_one, task) for task in indexed_tasks]
+            done_count = 0
+            for future in as_completed(futures):
+                done_count += 1
+                idx, path, summary, err = future.result()
+                results[idx] = (path, summary)
+                if err:
+                    failed += 1
+                log.info("  [%d/%d] completed: %s%s",
+                         done_count, total, path,
+                         " (FAILED)" if err else "")
+
+        # Restore original order
+        for idx in sorted(results):
+            chapter_summaries.append(results[idx])
 
         log.info("  chapter summaries done: %d success, %d failed", total - failed, failed)
 
