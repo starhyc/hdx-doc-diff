@@ -43,6 +43,7 @@ import json
 import logging
 import os
 import re
+import requests
 import shutil
 import sys
 import time
@@ -50,7 +51,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from html import escape as html_escape, unescape as html_unescape
 from pathlib import Path
 from lxml import etree, html as lxml_html
-from openai import OpenAI
 
 # ----------------------------- 日志 -----------------------------
 
@@ -1552,11 +1552,12 @@ def load_summary_config(config_path=None):
     支持通过环境变量 SUMMARY_API_KEY 覆盖 api_key.
     """
     defaults = {
-        "model": "gpt-4o-mini",
-        "api_base": "https://api.openai.com/v1",
+        "model": "MiniMax-M2.7",
+        "api_base": "http://127.0.0.1:8088",
         "api_key": "",
         "temperature": 0.3,
         "max_chars_per_chunk": 12000,
+        "timeout": 180,
         "prompts": dict(_DEFAULT_PROMPTS),
     }
     if config_path:
@@ -1590,7 +1591,7 @@ def _deep_merge(base, override):
 
 
 class ChangeSummarizer:
-    """基于 OpenAI SDK 的文档变更 AI 摘要器.
+    """基于 HTTP API 的文档变更 AI 摘要器.
 
     对每个有变更的章节提取纯文本变更列表, 调用 LLM 生成章节级摘要,
     最后汇总为文档级总览摘要.
@@ -1603,10 +1604,9 @@ class ChangeSummarizer:
         self.temperature = config.get("temperature", 0.3)
         self.max_chars_per_chunk = config.get("max_chars_per_chunk", 12000)
         self.prompts = config.get("prompts", dict(_DEFAULT_PROMPTS))
-        self._client = OpenAI(
-            base_url=config["api_base"],
-            api_key=config["api_key"],
-        )
+        self._api_base = config["api_base"].rstrip("/")
+        self._api_key = config.get("api_key", "")
+        self._timeout = config.get("timeout", 180)
 
     # ---- 章节路径映射 ----
 
@@ -1713,16 +1713,37 @@ class ChangeSummarizer:
     # ---- LLM 调用 ----
 
     def _call_llm(self, system_prompt, user_content):
-        """通过 OpenAI SDK 调用 chat/completions, 返回 assistant 文本."""
-        resp = self._client.chat.completions.create(
-            model=self.model,
-            messages=[
+        """通过 HTTP POST 调用 LLM API, 返回 assistant 文本.
+
+        兼容 OpenAI 格式 (choices[0].message.content) 和简化格式 (data.content).
+        """
+        url = f"{self._api_base}/chat/completion"
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        payload = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            temperature=self.temperature,
-        )
-        return resp.choices[0].message.content
+            "temperature": self.temperature,
+        }
+        resp = requests.post(url, json=payload, headers=headers, timeout=self._timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        # 兼容多种响应格式
+        if "choices" in data and len(data["choices"]) > 0:
+            choice = data["choices"][0]
+            if "message" in choice:
+                return choice["message"]["content"]
+            if "content" in choice:
+                return choice["content"]
+        if "content" in data:
+            return data["content"]
+        if "response" in data:
+            return data["response"]
+        raise ValueError(f"unexpected API response format: {list(data.keys())}")
 
     # ---- 章节摘要 (支持超长章节自动分片) ----
 
