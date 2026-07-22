@@ -1223,6 +1223,7 @@ class AssetImageResolver:
         out_path = self.out / filename
         if cand.exists():
             if out_path not in self.copied:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(cand, out_path)
                 self.copied.add(out_path)
             return f"{self.url_prefix}/{filename}"
