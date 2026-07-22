@@ -1728,6 +1728,7 @@ class ChangeSummarizer:
                 {"role": "user", "content": user_content},
             ],
             "temperature": self.temperature,
+            "stream": False,
         }
         resp = requests.post(url, json=payload, headers=headers, timeout=self._timeout)
         resp.raise_for_status()
